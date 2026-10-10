@@ -36,6 +36,11 @@ export function PeopleList({ snap, slots = 4 }: { snap: Snapshot; slots?: number
               {p.name}
               {p.id === snap.me?.id && <span className="ml-1.5 text-muted">(you)</span>}
             </span>
+            {p.sharedLocation && (
+              <span className="text-[13px]" title="Shared location for meet-in-the-middle">
+                📍
+              </span>
+            )}
             {p.isHost && <span className="text-[12px] tracking-wide text-muted uppercase">Host</span>}
             <motion.span
               initial={{ scale: 0 }}
@@ -163,6 +168,9 @@ export function Lobby({ snap, room, isHost }: { snap: Snapshot; room: Room; isHo
           <span className="text-[13px] text-muted">{count} here · invite as many as you like</span>
         </div>
         <PeopleList snap={snap} />
+        <div className="mt-4">
+          <ShareLocation snap={snap} room={room} />
+        </div>
       </div>
 
       <div className="sticky bottom-0 bg-gradient-to-t from-ivory via-ivory to-transparent pt-6">
@@ -287,5 +295,57 @@ export function JoinCard({ snap, room }: { snap: Snapshot; room: Room }) {
         <p className="mt-3 text-center text-[12px] text-muted">No sign-up, no email. Just a name.</p>
       </form>
     </Screen>
+  );
+}
+
+/** Opt-in: share this phone's location so the host can search "in the middle" of everyone. */
+export function ShareLocation({ snap, room }: { snap: Snapshot; room: Room }) {
+  const [status, setStatus] = useState<"idle" | "locating" | "error">("idle");
+  const mine = snap.participants.find((p) => p.id === snap.me?.id)?.sharedLocation ?? false;
+  const count = snap.participants.filter((p) => p.sharedLocation).length;
+
+  function share() {
+    if (!("geolocation" in navigator)) return setStatus("error");
+    setStatus("locating");
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          await room.act("location", { lat: pos.coords.latitude, lng: pos.coords.longitude });
+          haptic("medium");
+          setStatus("idle");
+        } catch {
+          setStatus("error");
+        }
+      },
+      () => setStatus("error"),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-line bg-paper/70 px-4 py-3">
+      {mine ? (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[14px] text-ink-2">
+            <span className="text-olive">✓ Location shared</span>
+            {count > 1 && <span className="text-muted"> · {count} friends can meet in the middle</span>}
+          </p>
+          <button onClick={() => room.act("location", { lat: null }).catch(() => {})} className="shrink-0 text-[13px] text-muted underline">
+            Stop
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[14px] leading-snug text-ink-2">
+            Coming from different places? Share your location so we can meet in the middle.
+            {status === "error" && <span className="block text-tomato-deep">Couldn&apos;t get your location. Check your browser permissions.</span>}
+          </p>
+          <Button size="sm" variant="outline" className="shrink-0" onClick={share} loading={status === "locating"}>
+            📍 Share
+          </Button>
+        </div>
+      )}
+      <p className="mt-1 text-[11px] text-muted">Only used to find a midpoint. Friends never see your exact location.</p>
+    </div>
   );
 }

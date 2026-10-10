@@ -61,17 +61,35 @@ export function shouldEndRound(room: Room, participants: Participant[], now: num
   return inRound.every((p) => p.finishedRound >= room.round || !isActive(p, now));
 }
 
+// Special vote rows live alongside normal votes so no extra tables are needed:
+//  - "super:<id>" in the same round = that person's one super-like (counts as an extra heart)
+//  - "veto:<id>"  in the same round = that person's one veto (knocks the spot out of the top picks)
+export const SUPER_PREFIX = "super:";
+export const VETO_PREFIX = "veto:";
+export const isSpecialVote = (restaurantId: string) =>
+  restaurantId.startsWith(SUPER_PREFIX) || restaurantId.startsWith(VETO_PREFIX);
+
 /**
  * Rank restaurants by group agreement.
- * Tie-breakers (transparent): 1. yes votes, 2. Google rating, 3. review count.
+ * Order (transparent): vetoed spots last; then hearts (a super-like adds one); then Google rating; then review count.
  * Match % = yes / votes actually received for that restaurant — a missing vote is not a "no".
  */
 export function computeResults(restaurants: Restaurant[], votes: Vote[], round: number): Results {
   const roundVotes = votes.filter((v) => v.round === round);
   const voters = new Set(roundVotes.map((v) => v.participantId)).size;
-  const byId = new Map<string, { yes: number; votes: number }>();
-  for (const r of restaurants) byId.set(r.id, { yes: 0, votes: 0 });
+  const byId = new Map<string, { yes: number; votes: number; supers: number; vetoes: number }>();
+  for (const r of restaurants) byId.set(r.id, { yes: 0, votes: 0, supers: 0, vetoes: 0 });
   for (const v of roundVotes) {
+    if (v.restaurantId.startsWith(SUPER_PREFIX)) {
+      const t = byId.get(v.restaurantId.slice(SUPER_PREFIX.length));
+      if (t) t.supers++;
+      continue;
+    }
+    if (v.restaurantId.startsWith(VETO_PREFIX)) {
+      const t = byId.get(v.restaurantId.slice(VETO_PREFIX.length));
+      if (t) t.vetoes++;
+      continue;
+    }
     const t = byId.get(v.restaurantId);
     if (!t) continue;
     t.votes++;
@@ -84,13 +102,16 @@ export function computeResults(restaurants: Restaurant[], votes: Vote[], round: 
         restaurant,
         yes: t.yes,
         votes: t.votes,
+        supers: t.supers,
+        vetoed: t.vetoes > 0,
         matchPct: t.votes > 0 ? Math.round((t.yes / t.votes) * 100) : null,
         rank: 0,
       };
     })
     .sort(
       (a, b) =>
-        b.yes - a.yes ||
+        Number(a.vetoed) - Number(b.vetoed) ||
+        b.yes + b.supers - (a.yes + a.supers) ||
         (b.restaurant.rating ?? -1) - (a.restaurant.rating ?? -1) ||
         (b.restaurant.reviewCount ?? -1) - (a.restaurant.reviewCount ?? -1) ||
         a.restaurant.name.localeCompare(b.restaurant.name),
@@ -98,8 +119,17 @@ export function computeResults(restaurants: Restaurant[], votes: Vote[], round: 
     .map((r, i) => ({ ...r, rank: i + 1 }));
 
   const top = ranked[0];
-  const hasMajority = !!top && voters > 0 && top.yes * 2 > voters;
+  const hasMajority = !!top && !top.vetoed && voters > 0 && top.yes * 2 > voters;
   return { ranked, voters, hasMajority };
+}
+
+/** Center point of everyone's shared locations (simple average — fine at city scale). */
+export function midpoint(points: { lat: number; lng: number }[]): { lat: number; lng: number } | null {
+  if (!points.length) return null;
+  return {
+    lat: points.reduce((s, p) => s + p.lat, 0) / points.length,
+    lng: points.reduce((s, p) => s + p.lng, 0) / points.length,
+  };
 }
 
 /** Pick the host: keep the current one unless they've left / been gone a while. */

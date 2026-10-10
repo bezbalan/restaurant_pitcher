@@ -5,7 +5,7 @@ import { ClientError, haptic } from "@/lib/client";
 import { NEIGHBORHOODS } from "@/lib/neighborhoods";
 import type { Cuisine, Filters, Radius, Snapshot } from "@/lib/types";
 import type { useRoom } from "@/lib/useRoom";
-import { PeopleList, WaitingDots } from "./Lobby";
+import { PeopleList, ShareLocation, WaitingDots } from "./Lobby";
 import { RoomHeader } from "./RoomClient";
 import { Button, Chip, Screen, Segmented, Toggle, cx } from "./ui";
 
@@ -48,7 +48,7 @@ export default function Vibe({ snap, room, isHost }: { snap: Snapshot; room: Roo
   return <VibeHost snap={snap} room={room} />;
 }
 
-function VibeWaiting({ snap }: { snap: Snapshot; room: Room }) {
+function VibeWaiting({ snap, room }: { snap: Snapshot; room: Room }) {
   const host = snap.participants.find((p) => p.isHost);
   return (
     <Screen className="safe-top safe-bottom">
@@ -70,6 +70,9 @@ function VibeWaiting({ snap }: { snap: Snapshot; room: Room }) {
         </div>
         <h2 className="mt-8 mb-3 text-[13px] font-medium tracking-[0.14em] text-muted uppercase">At the table</h2>
         <PeopleList snap={snap} slots={0} />
+        <div className="mt-4">
+          <ShareLocation snap={snap} room={room} />
+        </div>
       </div>
     </Screen>
   );
@@ -112,13 +115,17 @@ function VibeHost({ snap, room }: { snap: Snapshot; room: Room }) {
     set("budget", f.budget.includes(b) ? f.budget.filter((x) => x !== b) : [...f.budget, b].sort());
   }
 
+  const sharedCount = snap.participants.filter((p) => p.sharedLocation).length;
   const locationReady =
+    (f.location.mode === "middle" && sharedCount >= 2) ||
     (f.location.mode === "neighborhood" && !!f.location.neighborhood) ||
     (f.location.mode === "address" && !!f.location.address?.trim()) ||
     (f.location.mode === "current" && geo === "ok");
 
   const placeLabel =
-    f.location.mode === "neighborhood"
+    f.location.mode === "middle"
+      ? "the middle"
+      : f.location.mode === "neighborhood"
       ? f.location.neighborhood
       : f.location.mode === "address"
         ? f.location.address?.trim() || "your address"
@@ -151,13 +158,15 @@ function VibeHost({ snap, room }: { snap: Snapshot; room: Room }) {
             onChange={(m) => {
               haptic();
               if (m === "current") locateMe();
+              else if (m === "middle") set("location", { mode: "middle" });
               else if (m === "neighborhood") set("location", { mode: "neighborhood", neighborhood: f.location.neighborhood ?? "Culver City" });
               else set("location", { mode: "address", address: f.location.address ?? "" });
             }}
             options={[
-              { value: "neighborhood", label: "Neighborhood" },
+              { value: "neighborhood", label: "Area" },
               { value: "current", label: "Near me" },
               { value: "address", label: "Address" },
+              { value: "middle", label: "Middle" },
             ]}
           />
           <AnimatePresence mode="wait" initial={false}>
@@ -183,6 +192,24 @@ function VibeHost({ snap, room }: { snap: Snapshot; room: Room }) {
                   autoComplete="street-address"
                   className="mt-3 h-12 w-full rounded-2xl border border-line bg-paper px-4 text-ink outline-none placeholder:text-muted/70 focus:border-ink"
                 />
+              )}
+              {f.location.mode === "middle" && (
+                <div className="mt-3 rounded-2xl bg-paper px-4 py-3 text-[14px] text-ink-2 shadow-[var(--shadow-soft)]">
+                  <p>
+                    <span className="font-medium text-ink">
+                      {sharedCount} of {snap.participants.length}
+                    </span>{" "}
+                    friends shared their location. We&apos;ll search around the midpoint.
+                  </p>
+                  {sharedCount < 2 && (
+                    <p className="mt-1 text-tomato-deep">Need at least 2. Friends can tap 📍 Share on their screen right now.</p>
+                  )}
+                  {!snap.participants.find((p) => p.id === snap.me?.id)?.sharedLocation && (
+                    <div className="mt-2">
+                      <ShareLocation snap={snap} room={room} />
+                    </div>
+                  )}
+                </div>
               )}
               {f.location.mode === "current" && (
                 <p className={cx("mt-3 text-[14px]", geo === "denied" ? "text-tomato-deep" : "text-ink-2")}>

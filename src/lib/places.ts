@@ -34,6 +34,9 @@ export async function resolveOrigin(filters: Filters): Promise<{ origin: Origin;
   if (loc.mode === "current" && isFiniteNum(loc.lat) && isFiniteNum(loc.lng)) {
     return { origin: { lat: loc.lat!, lng: loc.lng!, label: "your location" }, notice: null };
   }
+  if (loc.mode === "middle" && isFiniteNum(loc.lat) && isFiniteNum(loc.lng)) {
+    return { origin: { lat: loc.lat!, lng: loc.lng!, label: "the middle" }, notice: null };
+  }
   if (loc.mode === "neighborhood") {
     const n = NEIGHBORHOODS.find((x) => x.name === loc.neighborhood) ?? findNeighborhood(loc.neighborhood);
     if (n) return { origin: { lat: n.lat, lng: n.lng, label: n.name }, notice: null };

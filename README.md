@@ -110,6 +110,10 @@ BASE=http://localhost:3100 node tests/e2e-api.mjs   # 20 multiplayer scenarios w
 
 **On each card:** up to 6 Google photos (tap the left/right side to flip), closing time ("Open till 11 PM"), rating, price, distance, Google's Gemini summary and up to 3 amenity tags. Tap **i** for hours, all photos, a recent review, phone and address. **Been here?** marks a place you've visited. It's remembered on your device and shown to the group with the results. **↺** undoes your last swipe.
 
+**Super-like & veto:** each person gets one ★ super-like per round (counts as an extra heart) and one ⊘ veto (a hard no that knocks the spot out of the top picks). Both stay anonymous.
+
+**Meet in the middle:** anyone can tap **📍 Share** in the lobby. The host then picks **Middle** on the vibe screen, and the search centers on the average of everyone's shared location. Coordinates are rounded to about 100 m, stay on the server and never reach other phones.
+
 **"Open now"** means open for at least the next 90 minutes, using Google's `nextCloseTime`.
 
 **Group size:** no practical limit (a sanity cap of 100 stops runaway rooms).

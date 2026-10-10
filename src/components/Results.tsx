@@ -17,7 +17,7 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
   const [showAll, setShowAll] = useState(false);
   const [details, setDetails] = useState<RankedResult["restaurant"] | null>(null);
   const host = snap.participants.find((p) => p.isHost);
-  const top = results.ranked.filter((r) => r.yes > 0).slice(0, 3);
+  const top = results.ranked.filter((r) => r.yes > 0 && !r.vetoed).slice(0, 3);
   const rest = results.ranked.filter((r) => !top.includes(r));
   const noVotes = results.voters === 0;
   const noLikes = !noVotes && top.length === 0;
@@ -60,7 +60,9 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
   const sub = noVotes
     ? "No votes came in this round. Run it back?"
     : noLikes
-      ? "Nobody hearted anything. Let's try some fresh options."
+      ? results.ranked.some((r) => r.yes > 0)
+        ? "Everything with hearts got vetoed. Let's try some fresh options."
+        : "Nobody hearted anything. Let's try some fresh options."
       : celebrate
         ? `${results.voters} ${results.voters === 1 ? "friend" : "friends"} voted. Here's where you agree most.`
         : "No spot got a majority. Here's where you landed. A quick second round with fresh options might settle it.";
@@ -137,7 +139,7 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
                       {r.restaurant.name}
                     </span>
                     <span className="shrink-0 text-muted">
-                      ♥ {r.yes} of {r.votes} {r.votes === 1 ? "vote" : "votes"}
+                      {r.vetoed ? "⊘ Vetoed · " : ""}♥ {r.yes} of {r.votes} {r.votes === 1 ? "vote" : "votes"}
                     </span>
                   </li>
                 ))}
@@ -156,7 +158,7 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
 
         <DetailsSheet r={details} onClose={() => setDetails(null)} been={details ? snap.been[details.id] : undefined} />
         <p className="mt-8 text-center text-[12px] leading-relaxed text-muted">
-          Ranked by number of hearts, then Google rating, then review count.
+          Ranked by hearts (a ★ super-like adds one), then Google rating, then review count. A ⊘ veto knocks a spot out.
           <br />
           Match % is the share of votes received that were yes. Skipped cards don&apos;t count as a no.
         </p>
@@ -217,11 +219,16 @@ function ResultCard({
           {rest.cuisine}
           {rest.neighborhood && ` · ${rest.neighborhood}`}
         </p>
-        <div className="mt-2 flex items-center gap-2 text-[15px]">
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px]">
           <span className="text-tomato">♥</span>
           <span className="font-medium text-ink">
             {everyoneVoted ? `${r.yes} of ${voters} ${voters === 1 ? "friend" : "friends"}` : `${r.yes} of ${r.votes} ${r.votes === 1 ? "vote" : "votes"}`}
           </span>
+          {r.supers > 0 && (
+            <span className="rounded-full bg-tomato-soft px-2 py-0.5 text-[12px] font-medium text-tomato-deep">
+              ★ {r.supers > 1 ? `${r.supers} super-likes` : "Super-liked"}
+            </span>
+          )}
           {!everyoneVoted && missing > 0 && (
             <span className="text-[13px] text-muted">
               · {missing} didn&apos;t get to it

@@ -296,6 +296,64 @@ await step("'been here' is private during the round, revealed with results", asy
   assert.equal(s.results.voters, 2, "been-marks never count as votes");
 });
 
+await step("super-like counts double, veto knocks a spot out, one of each per person", async () => {
+  const h = await call("/api/rooms", { name: "Sam" });
+  const c = h.data.code, a = h.data.pid;
+  const b = (await act(c, null, "join", { name: "Vic" })).data.pid;
+  await act(c, a, "vibe");
+  await act(c, a, "start", { filters: FILTERS });
+  let s = await snap(c, a);
+  await sleep(Math.max(0, s.startsAt - s.serverNow) + 100);
+  const [r0, r1, r2] = s.restaurants.map((x) => x.id);
+  // Both like r0 and r1; Sam super-likes r1 → r1 ranks above r0. Vic vetoes r2 (which Sam liked).
+  await act(c, a, "vote", { round: 1, restaurantId: r0, liked: true });
+  await act(c, a, "vote", { round: 1, restaurantId: r1, special: "super" });
+  await act(c, a, "vote", { round: 1, restaurantId: r2, liked: true });
+  await act(c, b, "vote", { round: 1, restaurantId: r0, liked: true });
+  await act(c, b, "vote", { round: 1, restaurantId: r1, liked: true });
+  await act(c, b, "vote", { round: 1, restaurantId: r2, special: "veto" });
+  // Trying a second super-like moves it rather than adding another
+  await act(c, a, "vote", { round: 1, restaurantId: r0, special: "super" });
+  await act(c, a, "vote", { round: 1, restaurantId: r1, special: "super" });
+  s = await snap(c, a);
+  assert.equal(s.mySuper, r1);
+  assert.equal(Object.keys(s.myVotes).length, 3, "special rows aren't counted as extra cards");
+  assert.equal(s.participants.find((p) => p.name === "Sam").progress, 3);
+  for (const p of [a, b]) await act(c, p, "finish", { round: 1 });
+  s = await waitFor(async () => {
+    const x = await snap(c, a);
+    return x.state === "results" ? x : null;
+  });
+  const ranked = s.results.ranked;
+  assert.equal(ranked[0].restaurant.id, r1);
+  assert.equal(ranked[0].supers, 1);
+  assert.equal(ranked[1].restaurant.id, r0);
+  assert.equal(ranked.find((x) => x.restaurant.id === r2).vetoed, true);
+  assert.equal(ranked.at(-1).restaurant.id, r2, "vetoed spot sinks to the bottom");
+});
+
+await step("meet in the middle: needs 2 sharers, searches around their midpoint, hides coordinates", async () => {
+  const h = await call("/api/rooms", { name: "Mia" });
+  const c = h.data.code, a = h.data.pid;
+  const b = (await act(c, null, "join", { name: "Leo" })).data.pid;
+  await act(c, a, "vibe");
+  const MID = { ...FILTERS, location: { mode: "middle" }, radius: null, cuisines: [] };
+  // Santa Monica + Silver Lake
+  await act(c, a, "location", { lat: 34.0195, lng: -118.4912 });
+  let r = await act(c, a, "start", { filters: MID });
+  assert.equal(r.status, 422);
+  assert.equal(r.data.code, "NEED_LOCATIONS");
+  await act(c, b, "location", { lat: 34.0869, lng: -118.2702 });
+  const s0 = await snap(c, b);
+  assert.equal(s0.participants.filter((p) => p.sharedLocation).length, 2);
+  assert.ok(!JSON.stringify(s0).includes("118.49"), "no raw coordinates in snapshots");
+  r = await act(c, a, "start", { filters: MID });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const loc = r.data.filters.location;
+  assert.equal(loc.mode, "middle");
+  assert.ok(Math.abs(loc.lat - 34.0532) < 0.01 && Math.abs(loc.lng - -118.3807) < 0.01, `midpoint ${loc.lat},${loc.lng}`);
+});
+
 if (process.env.EXPECT_GOOGLE) {
   await step("Google details: photos, hours, tags, summary, review; closing-soon places dropped", async () => {
     const h = await call("/api/rooms", { name: "G" });

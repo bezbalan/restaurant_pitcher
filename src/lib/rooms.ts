@@ -4,8 +4,12 @@ import {
   MAX_PARTICIPANTS,
   ROUND_SECONDS,
   VOTE_GRACE_MS,
+  SUPER_PREFIX,
+  VETO_PREFIX,
   computeResults,
   isActive,
+  isSpecialVote,
+  midpoint,
   makeCode,
   makeId,
   resolveHost,
@@ -51,7 +55,7 @@ export function cleanCode(raw: unknown): string {
 function cleanFilters(raw: unknown): Filters {
   const f = (raw ?? {}) as Partial<Filters>;
   const loc = (f.location ?? { mode: "neighborhood" }) as Filters["location"];
-  const mode = ["current", "neighborhood", "address"].includes(loc.mode) ? loc.mode : "neighborhood";
+  const mode = ["current", "neighborhood", "address", "middle"].includes(loc.mode) ? loc.mode : "neighborhood";
   const num = (n: unknown) => (typeof n === "number" && Number.isFinite(n) ? n : undefined);
   return {
     location: {
@@ -172,6 +176,16 @@ export async function startRound(code: string, pid: unknown, rawFilters?: unknow
   if (room.state === "swiping") return; // double tap — already started
   const filters = rawFilters ? cleanFilters(rawFilters) : room.filters;
   if (!filters) throw new ApiError(400, "Set the vibe first.");
+  if (filters.location.mode === "middle") {
+    // Recompute every round from whoever is still here, so late sharers count.
+    const locs = await sharedLocations(code);
+    if (locs.size < 2) {
+      await getStore().updateRoom(code, { filters, state: "vibe" });
+      throw new ApiError(422, "Meet-in-the-middle needs at least 2 friends to share their location.", "NEED_LOCATIONS");
+    }
+    const mid = midpoint([...locs.values()])!;
+    filters.location = { mode: "middle", lat: mid.lat, lng: mid.lng };
+  }
 
   const shortlist = await buildShortlist(filters, room.seenIds);
   if (shortlist.restaurants.length === 0) {
@@ -209,7 +223,11 @@ export async function startRound(code: string, pid: unknown, rawFilters?: unknow
   if (!ok) return; // someone else (another tab of the host) already started it
 }
 
-export async function castVote(code: string, pid: unknown, body: { round?: unknown; restaurantId?: unknown; liked?: unknown }) {
+export async function castVote(
+  code: string,
+  pid: unknown,
+  body: { round?: unknown; restaurantId?: unknown; liked?: unknown; special?: unknown },
+) {
   const room = await loadRoom(code);
   const me = await requireParticipant(code, pid);
   const now = Date.now();
@@ -218,14 +236,23 @@ export async function castVote(code: string, pid: unknown, body: { round?: unkno
   if (room.startsAt && now < room.startsAt - 500) throw new ApiError(409, "Hold on — the round hasn't started.", "NOT_STARTED");
   const rid = String(body.restaurantId ?? "");
   if (!room.restaurants.some((r) => r.id === rid)) throw new ApiError(400, "Unknown restaurant.");
-  await getStore().upsertVote({
+  const special = body.special === "super" || body.special === "veto" ? body.special : null;
+  const store = getStore();
+  await store.upsertVote({
     roomCode: code,
     round: room.round,
     participantId: me.id,
     restaurantId: rid,
-    liked: !!body.liked,
+    liked: special === "super" ? true : special === "veto" ? false : !!body.liked,
     createdAt: now,
   });
+  if (special) {
+    // One super-like and one veto per person per round: replace any earlier one.
+    const prefix = special === "super" ? SUPER_PREFIX : VETO_PREFIX;
+    const mine = (await store.listVotes(code, room.round)).filter((v) => v.participantId === me.id && v.restaurantId.startsWith(prefix));
+    for (const v of mine) await store.deleteVote(code, room.round, me.id, v.restaurantId);
+    await store.upsertVote({ roomCode: code, round: room.round, participantId: me.id, restaurantId: prefix + rid, liked: true, createdAt: now });
+  }
 }
 
 /** Undo my last swipe: forget the vote so the card comes back. */
@@ -234,7 +261,10 @@ export async function undoVote(code: string, pid: unknown, body: { round?: unkno
   const me = await requireParticipant(code, pid);
   if (room.state !== "swiping" || body.round !== room.round) throw new ApiError(409, "This round is over.", "ROUND_OVER");
   if (room.endsAt && Date.now() > room.endsAt) throw new ApiError(409, "Time's up!", "ROUND_OVER");
-  await getStore().deleteVote(code, room.round, me.id, String(body.restaurantId ?? ""));
+  const rid = String(body.restaurantId ?? "");
+  await getStore().deleteVote(code, room.round, me.id, rid);
+  await getStore().deleteVote(code, room.round, me.id, SUPER_PREFIX + rid);
+  await getStore().deleteVote(code, room.round, me.id, VETO_PREFIX + rid);
   if (me.finishedRound >= room.round) await getStore().patchParticipant(code, me.id, { finishedRound: room.round - 1 });
 }
 
@@ -253,6 +283,45 @@ export async function markBeen(code: string, pid: unknown, body: { restaurantId?
   } else {
     await getStore().deleteVote(code, BEEN_ROUND, me.id, rid);
   }
+}
+
+/**
+ * Meet-in-the-middle: each friend's last shared location, stored as a row in round -1 with
+ * restaurant_id "loc:<lat>,<lng>" (again, no schema change). Coordinates never leave the server.
+ */
+const LOCATION_ROUND = -1;
+async function sharedLocations(code: string): Promise<Map<string, { lat: number; lng: number }>> {
+  const [rows, ps] = await Promise.all([getStore().listVotes(code, LOCATION_ROUND), getStore().listParticipants(code)]);
+  const here = new Set(ps.filter((p) => !p.left).map((p) => p.id));
+  const out = new Map<string, { lat: number; lng: number }>();
+  for (const v of rows) {
+    const m = /^loc:(-?[\d.]+),(-?[\d.]+)$/.exec(v.restaurantId);
+    if (m && here.has(v.participantId)) out.set(v.participantId, { lat: Number(m[1]), lng: Number(m[2]) });
+  }
+  return out;
+}
+
+export async function shareLocation(code: string, pid: unknown, body: { lat?: unknown; lng?: unknown }) {
+  await loadRoom(code);
+  const me = await requireParticipant(code, pid);
+  const store = getStore();
+  const old = (await store.listVotes(code, LOCATION_ROUND)).filter((v) => v.participantId === me.id);
+  for (const v of old) await store.deleteVote(code, LOCATION_ROUND, me.id, v.restaurantId);
+  if (body.lat == null) return; // stop sharing
+  const lat = Number(body.lat);
+  const lng = Number(body.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    throw new ApiError(400, "That location doesn't look right.");
+  }
+  // ~100 m precision is plenty for picking a neighborhood, and kinder to privacy.
+  await store.upsertVote({
+    roomCode: code,
+    round: LOCATION_ROUND,
+    participantId: me.id,
+    restaurantId: `loc:${lat.toFixed(3)},${lng.toFixed(3)}`,
+    liked: true,
+    createdAt: Date.now(),
+  });
 }
 
 export async function finishSwiping(code: string, pid: unknown, round: unknown) {
@@ -309,10 +378,20 @@ export async function getSnapshot(code: string, pid: string | null): Promise<Sna
   const inPlay = room.state === "swiping" || room.state === "results" || room.state === "decided";
   const votes = inPlay && room.round > 0 ? await store.listVotes(code, room.round) : [];
   const progress = new Map<string, number>();
-  for (const v of votes) progress.set(v.participantId, (progress.get(v.participantId) ?? 0) + 1);
+  for (const v of votes) if (!isSpecialVote(v.restaurantId)) progress.set(v.participantId, (progress.get(v.participantId) ?? 0) + 1);
 
   const myVotes: Record<string, boolean> = {};
-  if (me) for (const v of votes) if (v.participantId === me.id) myVotes[v.restaurantId] = v.liked;
+  let mySuper: string | null = null;
+  let myVeto: string | null = null;
+  if (me) {
+    for (const v of votes) {
+      if (v.participantId !== me.id) continue;
+      if (v.restaurantId.startsWith(SUPER_PREFIX)) mySuper = v.restaurantId.slice(SUPER_PREFIX.length);
+      else if (v.restaurantId.startsWith(VETO_PREFIX)) myVeto = v.restaurantId.slice(VETO_PREFIX.length);
+      else myVotes[v.restaurantId] = v.liked;
+    }
+  }
+  const located = room.state === "lobby" || room.state === "vibe" ? await sharedLocations(code) : new Map();
 
   const beenVotes = inPlay ? await store.listVotes(code, BEEN_ROUND) : [];
   const myBeen = me ? beenVotes.filter((v) => v.participantId === me.id).map((v) => v.restaurantId) : [];
@@ -343,11 +422,14 @@ export async function getSnapshot(code: string, pid: string | null): Promise<Sna
         finished: room.state === "swiping" && p.finishedRound >= room.round && room.round > 0,
         progress: room.state === "swiping" ? progress.get(p.id) ?? 0 : 0,
         inRound: room.roundParticipantIds.includes(p.id),
+        sharedLocation: located.has(p.id),
       })),
     restaurants: inPlay ? room.restaurants : [],
     startsAt: room.startsAt,
     endsAt: room.endsAt,
     myVotes,
+    mySuper,
+    myVeto,
     myBeen,
     been,
     // Never expose individual votes — only aggregates, and only after the round.

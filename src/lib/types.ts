@@ -12,7 +12,8 @@ export type Cuisine =
   | "Chinese"
   | "Vietnamese";
 
-export type LocationMode = "current" | "neighborhood" | "address";
+/** "middle" = the midpoint of every friend who shared their location */
+export type LocationMode = "current" | "neighborhood" | "address" | "middle";
 
 export interface LocationChoice {
   mode: LocationMode;
@@ -134,6 +135,10 @@ export interface RankedResult {
   restaurant: Restaurant;
   yes: number;
   votes: number;
+  /** Super-likes (each counts as an extra heart in the ranking) */
+  supers: number;
+  /** Someone used their veto on it — it can't be a top pick */
+  vetoed: boolean;
   /** yes / votes received (0..100), null if no votes */
   matchPct: number | null;
   rank: number;
@@ -157,6 +162,8 @@ export interface PublicParticipant {
   progress: number;
   /** Taking part in the current round */
   inRound: boolean;
+  /** Shared their location for meet-in-the-middle (coordinates are never sent to other phones) */
+  sharedLocation: boolean;
 }
 
 /** restaurantId → names of friends who've been there (shown after the round) */
@@ -175,6 +182,9 @@ export interface Snapshot {
   startsAt: number | null;
   endsAt: number | null;
   myVotes: Record<string, boolean>;
+  /** The restaurant I super-liked / vetoed this round */
+  mySuper: string | null;
+  myVeto: string | null;
   /** Restaurants I've marked as "been here" */
   myBeen: string[];
   /** Who has been where — only revealed with the results */

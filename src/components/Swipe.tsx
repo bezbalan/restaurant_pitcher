@@ -72,11 +72,11 @@ export default function Swipe({ snap, room }: { snap: Snapshot; room: Room }) {
     now < startsAt ? "countdown" : remaining.length === 0 ? "done" : now >= endsAt ? "timeup" : "swiping";
 
   const sendVote = useCallback(
-    (restaurantId: string, liked: boolean) => {
+    (restaurantId: string, liked: boolean, special?: "super" | "veto") => {
       const p = (async () => {
         for (let attempt = 0; attempt < 4; attempt++) {
           try {
-            await api(`/api/rooms/${snap.code}`, { body: { action: "vote", pid, round: snap.round, restaurantId, liked } });
+            await api(`/api/rooms/${snap.code}`, { body: { action: "vote", pid, round: snap.round, restaurantId, liked, special } });
             return;
           } catch (e) {
             const status = (e as { status?: number }).status ?? 0;
@@ -90,16 +90,26 @@ export default function Swipe({ snap, room }: { snap: Snapshot; room: Room }) {
     [snap.code, snap.round, pid],
   );
 
+  // One super-like and one veto each. Local value wins until the server catches up (undefined = use server).
+  const [localSuper, setLocalSuper] = useState<string | null | undefined>(undefined);
+  const [localVeto, setLocalVeto] = useState<string | null | undefined>(undefined);
+  const mySuper = localSuper !== undefined ? localSuper : snap.mySuper;
+  const myVeto = localVeto !== undefined ? localVeto : snap.myVeto;
+
   const decide = useCallback(
-    (r: Restaurant, liked: boolean) => {
+    (r: Restaurant, liked: boolean, special?: "super" | "veto") => {
       if (phase !== "swiping") return;
+      if (special === "super" && mySuper) return;
+      if (special === "veto" && myVeto) return;
       setExitDir(liked ? 1 : -1);
       setLocal((m) => ({ ...m, [r.id]: liked }));
       setHistory((h) => [...h, r.id]);
-      haptic(liked ? "medium" : "light");
-      sendVote(r.id, liked);
+      if (special === "super") setLocalSuper(r.id);
+      if (special === "veto") setLocalVeto(r.id);
+      haptic(special ? "success" : liked ? "medium" : "light");
+      sendVote(r.id, liked, special);
     },
-    [phase, sendVote],
+    [phase, sendVote, mySuper, myVeto],
   );
 
   const canUndo = history.length > 0 && now < endsAt && now >= startsAt;
@@ -114,12 +124,14 @@ export default function Swipe({ snap, room }: { snap: Snapshot; room: Room }) {
       return n;
     });
     setUndone((u) => new Set(u).add(id));
+    if (mySuper === id) setLocalSuper(null);
+    if (myVeto === id) setLocalVeto(null);
     finishedSent.current = false;
     const p = Promise.allSettled(pending.current).then(() =>
       api(`/api/rooms/${snap.code}`, { body: { action: "undo", pid, round: snap.round, restaurantId: id } }).catch(() => {}),
     );
     pending.current.push(p);
-  }, [history, snap.code, snap.round, pid]);
+  }, [history, snap.code, snap.round, pid, mySuper, myVeto]);
 
   // Tell the server once we're out of cards (after our votes have landed).
   useEffect(() => {
@@ -219,7 +231,14 @@ export default function Swipe({ snap, room }: { snap: Snapshot; room: Room }) {
       </div>
 
       {/* Actions */}
-      <div className="flex items-center justify-center gap-7 pt-4 pb-1">
+      <div className="flex items-center justify-center gap-4 pt-4 pb-1">
+        <SmallAction
+          label="Veto"
+          icon="⊘"
+          used={!!myVeto}
+          disabled={phase !== "swiping" || !top}
+          onClick={() => top && decide(top, false, "veto")}
+        />
         <ActionButton kind="no" disabled={phase !== "swiping" || !top} onClick={() => top && decide(top, false)} />
         <div className="flex w-14 flex-col items-center gap-1">
           <span className="text-[13px] text-muted tabular-nums">
@@ -235,10 +254,15 @@ export default function Swipe({ snap, room }: { snap: Snapshot; room: Room }) {
           </button>
         </div>
         <ActionButton kind="yes" disabled={phase !== "swiping" || !top} onClick={() => top && decide(top, true)} />
+        <SmallAction
+          label="Super"
+          icon="★"
+          accent
+          used={!!mySuper}
+          disabled={phase !== "swiping" || !top}
+          onClick={() => top && decide(top, true, "super")}
+        />
       </div>
-      {!demo && snap.restaurants.some((r) => r.source === "google") && (
-        <p className="pt-1 text-center text-[10px] text-muted/80">Restaurant info &amp; photos from Google</p>
-      )}
       <DetailsSheet r={details} onClose={() => setDetails(null)} />
     </Screen>
   );
@@ -283,6 +307,9 @@ function Countdown({ n, total }: { n: number; total: number }) {
       </AnimatePresence>
       <p className="max-w-[260px] text-center text-[15px] text-ink-2">
         {total} spots. 60 seconds. <span className="text-tomato">♥</span> the ones you&apos;d happily go to.
+        <span className="mt-2 block text-[13px] text-muted">
+          You each get one <span className="text-tomato">★ super-like</span> (counts double) and one ⊘ veto (a hard no).
+        </span>
       </p>
     </motion.div>
   );
@@ -365,6 +392,41 @@ function ActionButton({ kind, onClick, disabled }: { kind: "yes" | "no"; onClick
     >
       {yes ? "♥" : "✕"}
     </motion.button>
+  );
+}
+
+function SmallAction({
+  label,
+  icon,
+  used,
+  accent,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  icon: string;
+  used: boolean;
+  accent?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <motion.button
+        type="button"
+        aria-label={used ? `${label} used` : label}
+        whileTap={{ scale: 0.86 }}
+        onClick={onClick}
+        disabled={disabled || used}
+        className={cx(
+          "flex h-12 w-12 items-center justify-center rounded-full border bg-paper text-[20px] shadow-[var(--shadow-soft)] transition-opacity disabled:opacity-35",
+          accent ? "border-tomato/40 text-tomato" : "border-line text-ink-2",
+        )}
+      >
+        {icon}
+      </motion.button>
+      <span className="text-[10px] tracking-wide text-muted uppercase">{used ? "Used" : label}</span>
+    </div>
   );
 }
 
@@ -536,7 +598,8 @@ function SwipeCard({
         <div className="flex shrink-0 flex-col gap-2 px-5 pt-3.5 pb-4">
           <MetaRow r={r} />
           {blurb && <p className="line-clamp-2 text-[14px] leading-snug text-ink-2">{blurb}</p>}
-          <TagRow tags={r.tags} max={3} oneLine />
+          <TagRow tags={r.tags} max={2} oneLine />
+          {r.source === "google" && <p className="text-[10px] text-muted/80">Info &amp; photos from Google</p>}
         </div>
       </article>
     </motion.div>

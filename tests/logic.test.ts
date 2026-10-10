@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { computeResults, diversify, resolveHost, shouldEndRound, shuffledFor, VOTE_GRACE_MS } from "../src/lib/logic.ts";
+import { computeResults, diversify, midpoint, resolveHost, shouldEndRound, shuffledFor, VOTE_GRACE_MS } from "../src/lib/logic.ts";
 import type { Participant, Restaurant, Room, Vote } from "../src/lib/types.ts";
 
 function rest(id: string, rating: number | null = 4.5, reviewCount: number | null = 100, cuisine = "Sushi"): Restaurant {
@@ -125,4 +125,28 @@ test("host hands off when host leaves", () => {
 test("diversify round-robins across groups", () => {
   const rs = [rest("s1", 4, 1, "Sushi"), rest("s2", 4, 1, "Sushi"), rest("s3", 4, 1, "Sushi"), rest("t1", 4, 1, "Thai")];
   assert.deepEqual(diversify(rs, 3).map((r) => r.id), ["s1", "t1", "s2"]);
+});
+
+test("a super-like counts as an extra heart", () => {
+  const rs = [rest("a", 4.9), rest("b", 4.0)];
+  const votes = [vote("p", "a", true), vote("q", "a", true), vote("p", "b", true), vote("q", "b", true), vote("p", "super:b", true)];
+  const res = computeResults(rs, votes, 1);
+  assert.equal(res.ranked[0].restaurant.id, "b");
+  assert.equal(res.ranked[0].supers, 1);
+  assert.equal(res.ranked[0].yes, 2, "super doesn't inflate the heart count shown");
+  assert.equal(res.voters, 2, "special rows don't add voters");
+});
+
+test("a veto knocks a spot out of the top, even if unanimous", () => {
+  const rs = [rest("a"), rest("b")];
+  const votes = [vote("p", "a", true), vote("q", "a", true), vote("p", "b", true), vote("q", "b", false), vote("q", "veto:a", true)];
+  const res = computeResults(rs, votes, 1);
+  assert.equal(res.ranked[0].restaurant.id, "b");
+  assert.equal(res.ranked[1].vetoed, true);
+  assert.equal(res.hasMajority, false, "b has 1 of 2 — no majority");
+});
+
+test("midpoint averages shared locations", () => {
+  assert.deepEqual(midpoint([{ lat: 34, lng: -118 }, { lat: 36, lng: -120 }]), { lat: 35, lng: -119 });
+  assert.equal(midpoint([]), null);
 });
