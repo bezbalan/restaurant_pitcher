@@ -45,5 +45,8 @@ alter table dc_rooms enable row level security;
 alter table dc_participants enable row level security;
 alter table dc_votes enable row level security;
 
+-- Make sure the server key can reach the tables even if "auto-expose new tables" is off.
+grant all on table dc_rooms, dc_participants, dc_votes to service_role;
+
 -- Optional housekeeping: delete rooms older than 2 days (run manually or via pg_cron).
 -- delete from dc_rooms where updated_at < (extract(epoch from now()) * 1000 - 2*24*3600*1000);
