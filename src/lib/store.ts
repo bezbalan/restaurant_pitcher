@@ -160,7 +160,8 @@ function supabaseStore(url: string, key: string): Store {
       ...init,
       headers: {
         apikey: key,
-        Authorization: `Bearer ${key}`,
+        // Legacy service_role keys are JWTs and go in Authorization too; new sb_secret_ keys go in apikey only.
+        ...(key.startsWith("eyJ") ? { Authorization: `Bearer ${key}` } : {}),
         "Content-Type": "application/json",
         ...(init.prefer ? { Prefer: init.prefer } : {}),
       },

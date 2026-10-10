@@ -20,7 +20,7 @@ You need three free accounts: **GitHub** (you already have this, since the code 
 4. Open the file [`supabase/schema.sql`](supabase/schema.sql) in this repo, copy **everything**, paste it into the editor, and click **Run**. You should see "Success. No rows returned".
 5. Now get two values you'll paste into Vercel in step 2:
    - Click **Project Settings** (gear icon) → **Data API** (or **API**). Copy the **Project URL**. It looks like `https://abcdefgh.supabase.co`.
-   - Click **API Keys**. Copy the **`service_role`** key (it may be labeled **secret**; click "Reveal"). ⚠️ Keep this one private. It only ever goes into Vercel, never into a chat or the code.
+   - Click **API Keys**. Copy the **secret** key (starts with `sb_secret_`) or, under "Legacy API keys", the **`service_role`** key. Either works. ⚠️ Keep it private: it only ever goes into Vercel, never into a chat or the code.
 
 ### Step 2: Put the website online (Vercel)
 
