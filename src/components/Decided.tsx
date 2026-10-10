@@ -2,7 +2,7 @@
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { directionsUrl, haptic, shareLink } from "@/lib/client";
+import { directionsUrl, haptic, momentWord, shareLink } from "@/lib/client";
 import type { Snapshot } from "@/lib/types";
 import type { useRoom } from "@/lib/useRoom";
 import { TagRow, hoursChip } from "./Details";
@@ -23,7 +23,7 @@ export default function Decided({ snap, room, isHost }: { snap: Snapshot; room: 
 
   async function share() {
     const url = window.location.href;
-    const res = await shareLink(url, `Dinner is decided: ${r!.name}`, `We're eating at ${r!.name} tonight 🍽️`);
+    const res = await shareLink(url, `It's decided: ${r!.name}`, `We're eating at ${r!.name} ${momentWord()} 🍽️`);
     if (res === "copied") setShared("Link copied ✓");
     setTimeout(() => setShared(null), 2000);
   }
@@ -33,7 +33,7 @@ export default function Decided({ snap, room, isHost }: { snap: Snapshot; room: 
       <RoomHeader code={snap.code} demo={r.source === "demo"} />
       <div className="flex flex-1 flex-col pt-5">
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[13px] font-medium tracking-[0.18em] text-muted uppercase">
-          Dinner is decided!
+          It&apos;s decided!
         </motion.p>
         <motion.h1
           initial={{ opacity: 0, y: 14 }}
@@ -41,7 +41,7 @@ export default function Decided({ snap, room, isHost }: { snap: Snapshot; room: 
           transition={{ type: "spring", stiffness: 220, damping: 22 }}
           className="mt-1 font-display text-[42px] leading-[1.0] tracking-tight [text-wrap:balance]"
         >
-          Tonight it&apos;s <em className="text-tomato">{r.name}.</em>
+          We&apos;re going to <em className="text-tomato">{r.name}.</em>
         </motion.h1>
 
         <motion.div

@@ -35,7 +35,7 @@ function roundSeconds() {
   return Number.isFinite(n) && n >= 5 && n <= 300 ? n : ROUND_SECONDS;
 }
 
-const CUISINES: Cuisine[] = ["Japanese", "Korean", "Thai", "Italian", "Mexican", "Indian", "American", "Mediterranean", "Chinese", "Vietnamese"];
+const CUISINES: Cuisine[] = ["Breakfast", "Brunch", "Japanese", "Korean", "Thai", "Italian", "Mexican", "Indian", "American", "Mediterranean", "Chinese", "Vietnamese", "Dessert", "Coffee"];
 
 export function cleanName(raw: unknown): string {
   const name = String(raw ?? "")
@@ -48,7 +48,7 @@ export function cleanName(raw: unknown): string {
 
 export function cleanCode(raw: unknown): string {
   const code = String(raw ?? "").toLowerCase();
-  if (!/^[a-z0-9]{4,12}$/.test(code)) throw new ApiError(404, "That dinner room doesn't exist.");
+  if (!/^[a-z0-9]{4,12}$/.test(code)) throw new ApiError(404, "That table doesn't exist.");
   return code;
 }
 
@@ -78,7 +78,7 @@ function cleanFilters(raw: unknown): Filters {
 
 async function loadRoom(code: string): Promise<Room> {
   const room = await getStore().getRoom(code);
-  if (!room) throw new ApiError(404, "That dinner room doesn't exist (or has expired).", "NOT_FOUND");
+  if (!room) throw new ApiError(404, "That table doesn't exist (or has expired).", "NOT_FOUND");
   return room;
 }
 

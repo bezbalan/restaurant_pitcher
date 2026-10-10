@@ -73,10 +73,10 @@ export function PeopleList({ snap, slots = 4 }: { snap: Snapshot; slots?: number
 function ShareCard({ code, host }: { code: string; host: string }) {
   const url = useRoomUrl(code);
   const [copied, setCopied] = useState(false);
-  const text = `${host} started a Dinner Club. Tap to help pick where we eat tonight 🍽️`;
+  const text = `${host} started a Bite Club. Tap to help pick where we eat 🍽️`;
   async function share() {
     haptic();
-    const res = await shareLink(url, "Dinner Club", text);
+    const res = await shareLink(url, "Bite Club", text);
     if (res === "copied") {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
@@ -178,7 +178,7 @@ export function Lobby({ snap, room, isHost }: { snap: Snapshot; room: Room; isHo
         {isHost ? (
           <>
             <Button className="w-full" onClick={go} loading={busy} disabled={others < 1}>
-              Find Our Dinner
+              Find Our Spot
             </Button>
             {others < 1 ? (
               <p className="mt-3 text-center text-[13px] text-muted">
@@ -268,7 +268,7 @@ export function JoinCard({ snap, room }: { snap: Snapshot; room: Room }) {
         <h1 className="text-center font-display text-[38px] leading-[1.05] tracking-tight">
           {host?.name ?? "Your friends"} invited you
           <br />
-          to <em className="text-tomato">dinner.</em>
+          to <em className="text-tomato">eat.</em>
         </h1>
         <p className="mt-3 text-center text-[15px] text-ink-2">{status}</p>
       </div>

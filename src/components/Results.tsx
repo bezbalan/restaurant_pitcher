@@ -50,7 +50,7 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
     </>
   ) : celebrate ? (
     <>
-      We found your <em className="text-tomato">dinner!</em>
+      We found your <em className="text-tomato">spot!</em>
     </>
   ) : (
     <>

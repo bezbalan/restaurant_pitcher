@@ -65,7 +65,7 @@ const FILTERS = {
   outdoor: false,
 };
 
-console.log(`Dinner Club E2E against ${BASE}`);
+console.log(`Bite Club E2E against ${BASE}`);
 
 await step("unknown room → 404", async () => {
   const r = await call("/api/rooms/zzzzzz");

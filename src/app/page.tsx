@@ -3,11 +3,11 @@ import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button, Logo, Screen } from "@/components/ui";
-import { ClientError, api, getSavedName, haptic, saveName, saveRoomPid } from "@/lib/client";
+import { ClientError, api, getSavedName, haptic, momentWord, saveName, saveRoomPid } from "@/lib/client";
 
 const FAN = [
   { word: "Sushi", where: "Santa Monica", tint: "#7a4a3a", rotate: -9, x: -58 },
-  { word: "Thai", where: "Silver Lake", tint: "#5d6650", rotate: 7, x: 58 },
+  { word: "Brunch", where: "Venice", tint: "#5d6650", rotate: 7, x: 58 },
   { word: "Tacos", where: "Culver City", tint: "#8a5a3c", rotate: -1, x: 0 },
 ];
 
@@ -26,6 +26,9 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Set after mount so the static page and the visitor's local time never disagree.
+  const [when, setWhen] = useState("today");
+  useEffect(() => setWhen(momentWord()), []);
 
   useEffect(() => {
     setName(getSavedName());
@@ -96,7 +99,7 @@ export default function Home() {
         >
           Where are we
           <br />
-          eating <em className="text-tomato">tonight?</em>
+          eating <em className="whitespace-nowrap text-tomato">{when}?</em>
         </motion.h1>
         <motion.p
           initial={{ opacity: 0 }}

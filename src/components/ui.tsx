@@ -11,7 +11,7 @@ export function cx(...c: (string | false | null | undefined)[]) {
 export function Logo({ className }: { className?: string }) {
   return (
     <span className={cx("font-display text-[19px] tracking-tight text-ink", className)}>
-      Dinner <em className="text-tomato">Club</em>
+      Bite <em className="text-tomato">Club</em>
     </span>
   );
 }

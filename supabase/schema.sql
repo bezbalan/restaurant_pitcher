@@ -1,4 +1,4 @@
--- Dinner Club schema. Paste into Supabase → SQL Editor → Run.
+-- Bite Club schema. Paste into Supabase → SQL Editor → Run.
 -- The app talks to these tables only from server-side API routes using the service-role key,
 -- so Row Level Security is enabled with no public policies (anon clients get nothing).
 

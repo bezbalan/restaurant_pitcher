@@ -257,6 +257,14 @@ const RICH_FIELD_MASK = [
 ].join(",");
 let richFieldsOk = true;
 
+/** Search phrases for meal-type cravings (everything else becomes "<Cuisine> restaurants"). */
+const QUERY_FOR: Partial<Record<Cuisine, string>> = {
+  Breakfast: "breakfast spots",
+  Brunch: "brunch spots",
+  Dessert: "dessert shops",
+  Coffee: "coffee shops",
+};
+
 /** A place counts as "open" only if it stays open at least this long after the round starts. */
 export const MIN_OPEN_MINUTES = 90;
 
@@ -343,8 +351,9 @@ async function googleShortlist(filters: Filters, origin: Origin, exclude: Set<st
   const perQuery = cuisines.length === 1 ? 20 : Math.max(8, Math.ceil(30 / cuisines.length));
 
   const base = (cuisine: Cuisine | null, withPrice: boolean) => ({
-    textQuery: `${vibe ? vibe + " " : ""}${cuisine ? cuisine + " " : ""}restaurants`,
-    includedType: "restaurant",
+    textQuery: `${vibe ? vibe + " " : ""}${cuisine ? QUERY_FOR[cuisine] ?? `${cuisine} restaurants` : "restaurants"}`,
+    // Coffee shops and dessert spots usually aren't typed "restaurant" on Google.
+    ...(cuisine === "Coffee" || cuisine === "Dessert" ? {} : { includedType: "restaurant" }),
     pageSize: Math.min(20, perQuery),
     locationBias: { circle: { center: { latitude: origin.lat, longitude: origin.lng }, radius: radiusM } },
     ...(filters.openNow ? { openNow: true } : {}),

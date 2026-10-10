@@ -104,4 +104,10 @@ export const DEMO_RESTAURANTS: DemoRestaurant[] = [
   r("Phorage", "Vietnamese", "Pho", "Palms", N.palms, 2, "Westside pho and Vietnamese favorites.", ["casual"]),
   r("Golden Deli", "Vietnamese", "Vietnamese", "San Gabriel", N.sanGabriel, 1, "SGV favorite for cha gio and pho.", ["casual"]),
   r("Pho Café", "Vietnamese", "Pho", "Silver Lake", N.silverLake, 1, "Low-key Silver Lake pho shop.", ["casual"]),
+  r("Eggslut", "Breakfast", "Breakfast sandwiches", "Downtown LA", N.dtla, 1, "Egg sandwiches at Grand Central Market.", ["casual"]),
+  r("Huckleberry", "Breakfast", "Bakery café", "Santa Monica", N.santaMonica, 2, "Santa Monica bakery café for pastries and breakfast plates.", ["casual"]),
+  r("Gjusta", "Brunch", "Bakery & deli", "Venice", N.venice, 2, "Sprawling Venice bakery-deli with a sunny back patio.", ["casual", "outdoor"]),
+  r("Salt & Straw", "Dessert", "Ice cream", "Venice", N.venice, 1, "Small-batch ice cream in inventive flavors on Abbot Kinney.", ["casual"]),
+  r("Diddy Riese", "Dessert", "Cookies & ice cream", "Westwood", [34.0631, -118.4468], 1, "Westwood's famous cheap ice cream cookie sandwiches.", ["casual"]),
+  r("Intelligentsia", "Coffee", "Coffee", "Silver Lake", N.silverLake, 1, "Sunset Junction coffee bar with a sunny patio.", ["casual", "outdoor"]),
 ];

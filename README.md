@@ -1,4 +1,4 @@
-# Dinner Club 🍽️
+# Bite Club 🍽️
 
 **Four friends. One link. Sixty seconds of swiping. One restaurant everyone agrees on.**
 

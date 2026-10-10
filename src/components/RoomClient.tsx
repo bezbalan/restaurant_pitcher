@@ -86,7 +86,7 @@ export default function RoomClient({ code }: { code: string }) {
 export function RoomHeader({ code, demo, right }: { code: string; demo?: boolean; right?: React.ReactNode }) {
   return (
     <header className="flex h-12 items-center justify-between gap-3">
-      <Link href="/" aria-label="Dinner Club home">
+      <Link href="/" aria-label="Bite Club home">
         <Logo />
       </Link>
       <div className="flex items-center gap-2">

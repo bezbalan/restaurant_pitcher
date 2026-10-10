@@ -11,7 +11,7 @@ import { Button, Chip, Screen, Segmented, Toggle, cx } from "./ui";
 
 type Room = ReturnType<typeof useRoom>;
 
-const CUISINES: Cuisine[] = ["Japanese", "Korean", "Thai", "Italian", "Mexican", "Indian", "American", "Mediterranean", "Chinese", "Vietnamese"];
+const CUISINES: Cuisine[] = ["Breakfast", "Brunch", "Japanese", "Korean", "Thai", "Italian", "Mexican", "Indian", "American", "Mediterranean", "Chinese", "Vietnamese", "Dessert", "Coffee"];
 const BUDGETS = [
   { level: 1, sign: "$", label: "Under $20" },
   { level: 2, sign: "$$", label: "$20–40" },

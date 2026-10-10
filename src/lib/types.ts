@@ -10,7 +10,12 @@ export type Cuisine =
   | "American"
   | "Mediterranean"
   | "Chinese"
-  | "Vietnamese";
+  | "Vietnamese"
+  // Meals & in-betweens
+  | "Breakfast"
+  | "Brunch"
+  | "Dessert"
+  | "Coffee";
 
 /** "middle" = the midpoint of every friend who shared their location */
 export type LocationMode = "current" | "neighborhood" | "address" | "middle";

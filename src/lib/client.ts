@@ -119,6 +119,16 @@ export function haptic(kind: "light" | "medium" | "success" = "light") {
   }
 }
 
+// ---------------------------------------------------------------- copy
+
+/** "this morning" / "today" / "tonight", based on the viewer's local time. */
+export function momentWord(date = new Date()): string {
+  const h = date.getHours();
+  if (h >= 4 && h < 11) return "this morning";
+  if (h >= 11 && h < 16) return "today";
+  return "tonight";
+}
+
 // ---------------------------------------------------------------- formatting
 
 export function priceLabel(r: Restaurant): string {
