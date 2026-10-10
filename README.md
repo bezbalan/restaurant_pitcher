@@ -118,6 +118,8 @@ BASE=http://localhost:3100 node tests/e2e-api.mjs   # 20 multiplayer scenarios w
 
 **Round length:** 75 seconds.
 
+**Ties:** if 2–4 spots tie for #1, the results say so. The host can run a **⚡ Face-off** (20 seconds, everyone taps one of the tied spots, most taps wins) or **🎲 Roll the dice**. If a face-off is still tied, a fair dice roll picks, and every phone shows the same winner.
+
 **"Open now"** means open for at least the next 90 minutes, using Google's `nextCloseTime`.
 
 **Group size:** no practical limit (a sanity cap of 100 stops runaway rooms).

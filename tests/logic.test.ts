@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { computeResults, diversify, midpoint, resolveHost, shouldEndRound, shuffledFor, VOTE_GRACE_MS } from "../src/lib/logic.ts";
+import { computeResults, diversify, midpoint, resolveHost, seededPick, shouldEndRound, shuffledFor, VOTE_GRACE_MS } from "../src/lib/logic.ts";
 import type { Participant, Restaurant, Room, Vote } from "../src/lib/types.ts";
 
 function rest(id: string, rating: number | null = 4.5, reviewCount: number | null = 100, cuisine = "Sushi"): Restaurant {
@@ -149,4 +149,23 @@ test("a veto knocks a spot out of the top, even if unanimous", () => {
 test("midpoint averages shared locations", () => {
   assert.deepEqual(midpoint([{ lat: 34, lng: -118 }, { lat: 36, lng: -120 }]), { lat: 35, lng: -119 });
   assert.equal(midpoint([]), null);
+});
+
+test("ties for #1 are detected (super-likes and vetoes respected)", () => {
+  const rs = [rest("a", 4.9), rest("b", 4.5), rest("c", 4.1), rest("d", 4.0)];
+  const all = (id: string) => [vote("p", id, true), vote("q", id, true)];
+  let res = computeResults(rs, [...all("a"), ...all("b"), ...all("c"), vote("p", "d", false)], 1);
+  assert.deepEqual(res.tiedIds, ["a", "b", "c"]);
+  res = computeResults(rs, [...all("a"), ...all("b"), ...all("c"), vote("p", "super:c", true)], 1);
+  assert.deepEqual(res.tiedIds, [], "a super-like breaks the tie");
+  res = computeResults(rs, [...all("a"), ...all("b"), vote("q", "veto:a", true)], 1);
+  assert.deepEqual(res.tiedIds, [], "vetoed spots can't tie");
+  assert.deepEqual(computeResults(rs, [], 1).tiedIds, [], "no votes, no tie");
+});
+
+test("seededPick is fair-ish and repeatable", () => {
+  assert.equal(seededPick(["x", "y", "z"], "room:2:dice"), seededPick(["x", "y", "z"], "room:2:dice"));
+  const counts: Record<string, number> = {};
+  for (let i = 0; i < 300; i++) counts[seededPick(["x", "y", "z"], `s${i}`)] = (counts[seededPick(["x", "y", "z"], `s${i}`)] ?? 0) + 1;
+  for (const k of ["x", "y", "z"]) assert.ok(counts[k] > 60, JSON.stringify(counts));
 });

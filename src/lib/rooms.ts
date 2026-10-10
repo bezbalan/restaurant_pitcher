@@ -1,6 +1,8 @@
 import "server-only";
 import {
   COUNTDOWN_MS,
+  FACEOFF_SECONDS,
+  seededPick,
   MAX_PARTICIPANTS,
   ROUND_SECONDS,
   VOTE_GRACE_MS,
@@ -175,7 +177,7 @@ export async function openVibe(code: string, pid: unknown) {
 export async function startRound(code: string, pid: unknown, rawFilters?: unknown) {
   const room = await requireHost(code, pid);
   if (room.state === "swiping") return; // double tap — already started
-  const filters = rawFilters ? cleanFilters(rawFilters) : room.filters;
+  const filters = rawFilters ? cleanFilters(rawFilters) : room.filters ? { ...room.filters, faceoff: undefined } : null;
   if (!filters) throw new ApiError(400, "Set the vibe first.");
   if (filters.location.mode === "middle") {
     // Recompute every round from whoever is still here, so late sharers count.
@@ -244,6 +246,13 @@ export async function castVote(
   if (!room.restaurants.some((r) => r.id === rid)) throw new ApiError(400, "Unknown restaurant.");
   const special = body.special === "super" || body.special === "veto" ? body.special : null;
   const store = getStore();
+  if (room.filters?.faceoff) {
+    // Face-off: one pick each — choosing a new spot replaces the old pick.
+    const mine = (await store.listVotes(code, room.round)).filter((v) => v.participantId === me.id && v.restaurantId !== rid);
+    for (const v of mine) await store.deleteVote(code, room.round, me.id, v.restaurantId);
+    await store.upsertVote({ roomCode: code, round: room.round, participantId: me.id, restaurantId: rid, liked: true, createdAt: now });
+    return;
+  }
   await store.upsertVote({
     roomCode: code,
     round: room.round,
@@ -364,6 +373,34 @@ export async function finishSwiping(code: string, pid: unknown, round: unknown) 
   await getStore().patchParticipant(code, me.id, { finishedRound: room.round, lastSeen: Date.now() });
 }
 
+/** Settle a tie for #1: a short round where everyone taps one of the tied spots. */
+export async function startFaceoff(code: string, pid: unknown) {
+  const room = await requireHost(code, pid);
+  if (room.state !== "results" || room.filters?.faceoff) return;
+  const store = getStore();
+  const results = computeResults(room.restaurants, await store.listVotes(code, room.round), room.round);
+  if (results.tiedIds.length < 2) throw new ApiError(409, "There's no tie to settle.");
+  const tied = results.tiedIds.map((id) => room.restaurants.find((r) => r.id === id)!).filter(Boolean);
+  const ps = await store.listParticipants(code);
+  const now = Date.now();
+  const startsAt = now + COUNTDOWN_MS;
+  await store.updateRoom(
+    code,
+    {
+      state: "swiping",
+      round: room.round + 1,
+      filters: { ...(room.filters as Filters), faceoff: true },
+      restaurants: tied,
+      roundParticipantIds: ps.filter((p) => !p.left && (isActive(p, now) || p.id === pid)).map((p) => p.id),
+      startsAt,
+      endsAt: startsAt + FACEOFF_SECONDS * 1000,
+      selectedId: null,
+      notice: null,
+    },
+    { state: "results", round: room.round },
+  );
+}
+
 export async function selectRestaurant(code: string, pid: unknown, restaurantId: unknown) {
   const room = await requireHost(code, pid);
   if (room.state !== "results" && room.state !== "decided") throw new ApiError(409, "Results aren't in yet.");
@@ -468,10 +505,20 @@ export async function getSnapshot(code: string, pid: string | null): Promise<Sna
     myBeen,
     been,
     // Never expose individual votes — only aggregates, and only after the round.
-    results: room.state === "results" || room.state === "decided" ? computeResults(room.restaurants, votes, room.round) : null,
+    results: room.state === "results" || room.state === "decided" ? settle(computeResults(room.restaurants, votes, room.round), room) : null,
     selectedId: room.selectedId,
     dataSource: room.dataSource,
     notice: room.notice,
     me: me ? { id: me.id, name: me.name } : null,
   };
+}
+
+/** After a face-off there's no second face-off: a remaining tie is settled by a fair dice roll. */
+function settle(results: ReturnType<typeof computeResults>, room: Room): ReturnType<typeof computeResults> {
+  if (!room.filters?.faceoff) return results;
+  if (results.tiedIds.length < 2) return { ...results, tiedIds: [] };
+  const winnerId = seededPick(results.tiedIds, `${room.code}:${room.round}:dice`);
+  const winner = results.ranked.find((r) => r.restaurant.id === winnerId)!;
+  const ranked = [winner, ...results.ranked.filter((r) => r !== winner)].map((r, i) => ({ ...r, rank: i + 1 }));
+  return { ...results, ranked, tiedIds: [], diceRoll: true };
 }

@@ -21,7 +21,9 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
   const rest = results.ranked.filter((r) => !top.includes(r));
   const noVotes = results.voters === 0;
   const noLikes = !noVotes && top.length === 0;
-  const celebrate = results.hasMajority;
+  const faceoff = !!snap.filters?.faceoff;
+  const celebrate = results.hasMajority || (faceoff && results.voters > 0);
+  const tied = faceoff ? [] : results.tiedIds;
 
   useEffect(() => {
     if (celebrate) haptic("success");
@@ -40,7 +42,16 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
     }
   }
 
-  const headline = noVotes ? (
+  const nWay = ["", "", "Two-way", "Three-way", "Four-way"][tied.length] ?? "Big";
+  const headline = tied.length >= 2 ? (
+    <>
+      {nWay} <em className="text-tomato">tie!</em>
+    </>
+  ) : faceoff && !noVotes ? (
+    <>
+      Face-off <em className="text-tomato">winner!</em>
+    </>
+  ) : noVotes ? (
     <>
       Nobody swiped <em className="text-tomato">in time.</em>
     </>
@@ -57,7 +68,13 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
       Close <em className="text-tomato">call.</em>
     </>
   );
-  const sub = noVotes
+  const sub = tied.length >= 2
+    ? `${results.voters} ${results.voters === 1 ? "friend" : "friends"} voted, and ${tied.length} spots came out on top. Settle it below.`
+    : faceoff && !noVotes
+    ? results.diceRoll
+      ? "Still tied, so the dice decided."
+      : `${results.voters} ${results.voters === 1 ? "pick" : "picks"} are in. Here's the winner.`
+    : noVotes
     ? "No votes came in this round. Run it back?"
     : noLikes
       ? results.ranked.some((r) => r.yes > 0)
@@ -73,7 +90,7 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
       <RoomHeader code={snap.code} demo={snap.dataSource === "demo"} />
       <div className="pt-5 pb-6">
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[13px] font-medium tracking-[0.18em] text-muted uppercase">
-          Round {snap.round} results
+          {faceoff ? "⚡ Face-off results" : `Round ${snap.round} results`}
         </motion.p>
         <motion.h1
           initial={{ opacity: 0, y: 16, scale: 0.98 }}
@@ -85,6 +102,47 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
         </motion.h1>
         <p className="mt-2 text-[15px] text-ink-2">{sub}</p>
 
+        {results.diceRoll && (
+          <motion.div
+            initial={{ rotate: -540, scale: 0.2, opacity: 0 }}
+            animate={{ rotate: 0, scale: 1, opacity: 1 }}
+            transition={{ type: "spring", stiffness: 120, damping: 12 }}
+            className="mt-4 text-center text-[48px]"
+            aria-hidden
+          >
+            🎲
+          </motion.div>
+        )}
+        {tied.length >= 2 && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-5 rounded-[24px] bg-ink p-5 text-ivory"
+          >
+            <p className="font-display text-[24px] leading-snug">🤝 How should we settle it?</p>
+            <p className="mt-1 text-[14px] text-ivory/70">
+              A 20-second face-off where everyone taps one of the tied spots, or let fate decide.
+            </p>
+            {isHost ? (
+              <div className="mt-4 flex gap-2">
+                <Button size="md" className="flex-1" loading={busy === "faceoff"} onClick={() => run("faceoff")}>
+                  ⚡ Face-off
+                </Button>
+                <Button
+                  size="md"
+                  variant="ghost"
+                  className="bg-ivory/10 !text-ivory hover:bg-ivory/20"
+                  loading={busy === "dice"}
+                  onClick={() => run("select", { restaurantId: tied[Math.floor(Math.random() * tied.length)] }, "dice")}
+                >
+                  🎲 Roll the dice
+                </Button>
+              </div>
+            ) : (
+              <p className="mt-3 text-[13px] text-ivory/60">{host?.name ?? "The host"} can start a quick face-off.</p>
+            )}
+          </motion.div>
+        )}
         <DietReminder people={snap.participants} className="mt-5" />
         <div className="mt-6 space-y-4">
           {top.map((r, i) => (

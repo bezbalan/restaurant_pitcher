@@ -49,6 +49,8 @@ export interface Filters {
   casual: boolean;
   dateNight: boolean;
   outdoor: boolean;
+  /** Set on a face-off round: everyone picks one of the tied spots */
+  faceoff?: boolean;
   /** Everyone's dietary needs, filled in by the server when the round starts */
   dietNeeds?: string[];
 }
@@ -162,6 +164,10 @@ export interface Results {
   voters: number;
   /** True if the top restaurant received yes votes from a strict majority of voters */
   hasMajority: boolean;
+  /** Restaurants tied for #1 (2+), or empty — the host can settle it with a face-off */
+  tiedIds: string[];
+  /** A face-off that was still tied, settled by a (seeded, fair) dice roll */
+  diceRoll?: boolean;
 }
 
 export interface PublicParticipant {

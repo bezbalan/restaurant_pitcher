@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useRoom } from "@/lib/useRoom";
 import Decided from "./Decided";
+import FaceOff from "./FaceOff";
 import { JoinCard, Lobby } from "./Lobby";
 import Results from "./Results";
 import Swipe from "./Swipe";
@@ -50,6 +51,7 @@ export default function RoomClient({ code }: { code: string }) {
   else if (!me) body = <JoinCard snap={snap} room={room} />;
   else if (snap.state === "lobby") body = <Lobby snap={snap} room={room} isHost={isHost} />;
   else if (snap.state === "vibe") body = <Vibe snap={snap} room={room} isHost={isHost} />;
+  else if (snap.state === "swiping" && snap.filters?.faceoff) body = <FaceOff key={snap.round} snap={snap} room={room} />;
   else if (snap.state === "swiping") body = <Swipe key={snap.round} snap={snap} room={room} />;
   else if (snap.state === "results") body = <Results snap={snap} room={room} isHost={isHost} />;
   else body = <Decided snap={snap} room={room} isHost={isHost} />;

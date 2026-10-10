@@ -373,6 +373,76 @@ await step("dietary needs: each friend sets their own; shown to the table; inval
   }
 });
 
+async function tiedRoom(names) {
+  const h = await call("/api/rooms", { name: names[0] });
+  const c = h.data.code;
+  const pids = [h.data.pid];
+  for (const n of names.slice(1)) pids.push((await act(c, null, "join", { name: n })).data.pid);
+  await act(c, pids[0], "vibe");
+  await act(c, pids[0], "start", { filters: FILTERS });
+  let s = await snap(c, pids[0]);
+  await sleep(Math.max(0, s.startsAt - s.serverNow) + 100);
+  const [r0, r1, r2] = s.restaurants.map((x) => x.id);
+  for (const p of pids) {
+    for (const id of s.restaurants.map((x) => x.id)) await act(c, p, "vote", { round: 1, restaurantId: id, liked: [r0, r1, r2].includes(id) });
+    await act(c, p, "finish", { round: 1 });
+  }
+  s = await waitFor(async () => {
+    const x = await snap(c, pids[0]);
+    return x.state === "results" ? x : null;
+  });
+  return { c, pids, s, ids: [r0, r1, r2] };
+}
+
+await step("three-way 100% tie → face-off → most taps wins", async () => {
+  const { c, pids, s, ids } = await tiedRoom(["Hal", "Ivy", "Jo"]);
+  assert.equal(s.results.tiedIds.length, 3);
+  assert.deepEqual([...s.results.tiedIds].sort(), [...ids].sort());
+  assert.equal((await act(c, pids[1], "faceoff")).status, 403, "host only");
+  const f = await act(c, pids[0], "faceoff");
+  assert.equal(f.status, 200, JSON.stringify(f.data));
+  assert.equal(f.data.state, "swiping");
+  assert.equal(f.data.filters.faceoff, true);
+  assert.equal(f.data.restaurants.length, 3);
+  await sleep(Math.max(0, f.data.startsAt - f.data.serverNow) + 100);
+  const round = f.data.round;
+  await act(c, pids[0], "vote", { round, restaurantId: ids[1], liked: true });
+  await act(c, pids[1], "vote", { round, restaurantId: ids[2], liked: true });
+  await act(c, pids[1], "vote", { round, restaurantId: ids[1], liked: true }); // switches pick
+  await act(c, pids[2], "vote", { round, restaurantId: ids[0], liked: true });
+  assert.equal(Object.keys((await snap(c, pids[1])).myVotes).length, 1, "one pick each");
+  for (const p of pids) await act(c, p, "finish", { round });
+  const r = await waitFor(async () => {
+    const x = await snap(c, pids[0]);
+    return x.state === "results" ? x : null;
+  });
+  assert.equal(r.results.ranked[0].restaurant.id, ids[1]);
+  assert.equal(r.results.ranked[0].yes, 2);
+  assert.deepEqual(r.results.tiedIds, [], "no second face-off");
+  assert.ok(!r.results.diceRoll);
+  // A fresh round afterwards is a normal round again
+  const fresh = await act(c, pids[0], "rematch");
+  assert.equal(fresh.status, 200, JSON.stringify(fresh.data));
+  assert.ok(!fresh.data.filters.faceoff);
+});
+
+await step("face-off still tied → dice decides, same answer on every phone", async () => {
+  const { c, pids, ids } = await tiedRoom(["Kai", "Lou"]);
+  const f = await act(c, pids[0], "faceoff");
+  await sleep(Math.max(0, f.data.startsAt - f.data.serverNow) + 100);
+  await act(c, pids[0], "vote", { round: f.data.round, restaurantId: ids[0], liked: true });
+  await act(c, pids[1], "vote", { round: f.data.round, restaurantId: ids[1], liked: true });
+  for (const p of pids) await act(c, p, "finish", { round: f.data.round });
+  const a = await waitFor(async () => {
+    const x = await snap(c, pids[0]);
+    return x.state === "results" ? x : null;
+  });
+  const b = await snap(c, pids[1]);
+  assert.equal(a.results.diceRoll, true);
+  assert.ok([ids[0], ids[1]].includes(a.results.ranked[0].restaurant.id));
+  assert.equal(a.results.ranked[0].restaurant.id, b.results.ranked[0].restaurant.id);
+});
+
 if (process.env.EXPECT_GOOGLE) {
   await step("Google details: photos, hours, tags, summary, review; closing-soon places dropped", async () => {
     const h = await call("/api/rooms", { name: "G" });
