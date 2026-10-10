@@ -252,12 +252,72 @@ await step("host leaving hands host role to the next friend", async () => {
   assert.equal(s.hostId, g.data.pid);
 });
 
-await step("room caps at 8 friends", async () => {
+await step("no 8-friend cap: 12 friends can join one table", async () => {
   const h = await call("/api/rooms", { name: "H" });
-  for (let i = 0; i < 7; i++) assert.equal((await act(h.data.code, null, "join", { name: `F${i}` })).status, 200);
-  const r = await act(h.data.code, null, "join", { name: "Extra" });
-  assert.equal(r.status, 409);
+  for (let i = 0; i < 11; i++) assert.equal((await act(h.data.code, null, "join", { name: `F${i}` })).status, 200);
+  assert.equal((await snap(h.data.code)).participants.length, 12);
 });
+
+await step("undo brings a card back and un-finishes me", async () => {
+  const h = await call("/api/rooms", { name: "U" });
+  const c = h.data.code, p = h.data.pid;
+  await act(c, p, "vibe");
+  await act(c, p, "start", { filters: FILTERS });
+  let s = await snap(c, p);
+  await sleep(Math.max(0, s.startsAt - s.serverNow) + 100);
+  const rid = s.restaurants[0].id;
+  await act(c, p, "vote", { round: 1, restaurantId: rid, liked: true });
+  assert.equal((await snap(c, p)).myVotes[rid], true);
+  assert.equal((await act(c, p, "undo", { round: 1, restaurantId: rid })).status, 200);
+  assert.equal(rid in (await snap(c, p)).myVotes, false);
+});
+
+await step("'been here' is private during the round, revealed with results", async () => {
+  const h = await call("/api/rooms", { name: "Bea" });
+  const c = h.data.code;
+  const g = await act(c, null, "join", { name: "Gus" });
+  await act(c, h.data.pid, "vibe");
+  await act(c, h.data.pid, "start", { filters: FILTERS });
+  let s = await snap(c, h.data.pid);
+  const rid = s.restaurants[0].id;
+  assert.equal((await act(c, h.data.pid, "been", { restaurantId: rid, been: true })).status, 200);
+  assert.deepEqual((await snap(c, h.data.pid)).myBeen, [rid]);
+  assert.deepEqual((await snap(c, g.data.pid)).been, {}, "not revealed mid-round");
+  await sleep(Math.max(0, s.startsAt - s.serverNow) + 100);
+  for (const pp of [h.data.pid, g.data.pid]) {
+    await act(c, pp, "vote", { round: 1, restaurantId: rid, liked: true });
+    await act(c, pp, "finish", { round: 1 });
+  }
+  s = await waitFor(async () => {
+    const x = await snap(c, g.data.pid);
+    return x.state === "results" ? x : null;
+  });
+  assert.deepEqual(s.been[rid], ["Bea"]);
+  assert.equal(s.results.voters, 2, "been-marks never count as votes");
+});
+
+if (process.env.EXPECT_GOOGLE) {
+  await step("Google details: photos, hours, tags, summary, review; closing-soon places dropped", async () => {
+    const h = await call("/api/rooms", { name: "G" });
+    const c = h.data.code;
+    await act(c, h.data.pid, "vibe");
+    const r = await act(c, h.data.pid, "start", { filters: { ...FILTERS, openNow: true, cuisines: [] } });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(r.data.dataSource, "google");
+    const rs = r.data.restaurants;
+    assert.ok(rs.length >= 6);
+    assert.ok(rs.every((x) => x.minutesToClose == null || x.minutesToClose >= 90), "no place closing within 90 min");
+    const x = rs[0];
+    assert.ok(x.photos.length >= 2 && x.photos[0].url.startsWith("/api/photo?ref="));
+    assert.ok(x.closesAt && /AM|PM/.test(x.closesAt));
+    assert.ok(x.tags.includes("Cocktails"));
+    assert.ok(x.aiSummary);
+    assert.ok(x.review && x.review.author === "Test Reviewer");
+    assert.ok(x.phone);
+    const photo = await fetch(BASE + x.photos[1].url, { redirect: "manual" });
+    assert.equal(photo.status, 302);
+  });
+}
 
 await step("impossible filters → friendly empty state, filters kept", async () => {
   const h = await call("/api/rooms", { name: "H" });

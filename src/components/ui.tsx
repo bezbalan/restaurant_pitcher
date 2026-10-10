@@ -172,23 +172,45 @@ export function Avatar({ name, size = 40, done, dim }: { name: string; size?: nu
   );
 }
 
-export function AvatarStack({ people, size = 32 }: { people: PublicParticipant[]; size?: number }) {
+export function AvatarStack({ people, size = 32, max = 5 }: { people: PublicParticipant[]; size?: number; max?: number }) {
+  const shown = people.slice(0, max);
+  const extra = people.length - shown.length;
   return (
-    <div className="flex -space-x-2">
-      {people.map((p) => (
+    <div className="flex items-center -space-x-2">
+      {shown.map((p) => (
         <Avatar key={p.id} name={p.name} size={size} done={p.finished} dim={!p.active} />
       ))}
+      {extra > 0 && (
+        <span
+          className="flex items-center justify-center rounded-full bg-sand text-[11px] font-medium text-ink-2 ring-2 ring-ivory"
+          style={{ width: size, height: size }}
+        >
+          +{extra}
+        </span>
+      )}
     </div>
   );
 }
 
 /** Restaurant photo, or an editorial typographic plate when no real photo exists. */
-export function RestaurantImage({ r, className, compact, bare }: { r: Restaurant; className?: string; compact?: boolean; bare?: boolean }) {
-  if (r.photoUrl) {
+export function RestaurantImage({
+  r,
+  className,
+  compact,
+  bare,
+  src,
+}: {
+  r: Restaurant;
+  className?: string;
+  compact?: boolean;
+  bare?: boolean;
+  src?: string;
+}) {
+  if (src || r.photoUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={r.photoUrl}
+        src={src ?? r.photoUrl!}
         alt={r.name}
         draggable={false}
         className={cx("h-full w-full object-cover", className)}

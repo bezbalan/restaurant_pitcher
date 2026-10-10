@@ -8,10 +8,12 @@ import {
   getSnapshot,
   joinRoom,
   leaveRoom,
+  markBeen,
   openVibe,
   reopenResults,
   selectRestaurant,
   startRound,
+  undoVote,
 } from "@/lib/rooms";
 
 export async function GET(req: NextRequest, ctx: RouteContext<"/api/rooms/[code]">) {
@@ -47,6 +49,12 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/rooms/[code
         break;
       case "vote":
         await castVote(code, pid, body);
+        break;
+      case "undo":
+        await undoVote(code, pid, body);
+        break;
+      case "been":
+        await markBeen(code, pid, body);
         break;
       case "finish":
         await finishSwiping(code, pid, body.round);

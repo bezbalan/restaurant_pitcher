@@ -1,10 +1,11 @@
 "use client";
 import { AnimatePresence, motion, useMotionValue, useTransform, type PanInfo } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, haptic } from "@/lib/client";
+import { api, getBeenSet, haptic, setBeen } from "@/lib/client";
 import { shuffledFor } from "@/lib/logic";
 import type { Restaurant, Snapshot } from "@/lib/types";
 import { useNow, type useRoom } from "@/lib/useRoom";
+import { DetailsSheet, TagRow, hoursChip } from "./Details";
 import { RoomHeader } from "./RoomClient";
 import { AvatarStack, MetaRow, RestaurantImage, Screen, Spinner, cx } from "./ui";
 
@@ -28,11 +29,41 @@ export default function Swipe({ snap, room }: { snap: Snapshot; room: Room }) {
   );
 
   const [local, setLocal] = useState<Record<string, boolean>>({});
+  const [undone, setUndone] = useState<Set<string>>(new Set());
+  const [history, setHistory] = useState<string[]>([]);
   const [exitDir, setExitDir] = useState(1);
+  const [details, setDetails] = useState<Restaurant | null>(null);
   const pending = useRef<Promise<unknown>[]>([]);
   const finishedSent = useRef(false);
 
-  const voted = { ...snap.myVotes, ...local };
+  // "Been here": what the server knows for this room, plus what this device remembers from before.
+  const [been, setBeenState] = useState<Set<string>>(() => new Set(snap.myBeen));
+  useEffect(() => {
+    const remembered = getBeenSet();
+    const toSync = snap.restaurants.filter((r) => remembered.has(r.id) && !snap.myBeen.includes(r.id));
+    if (!toSync.length) return;
+    setBeenState((prev) => new Set([...prev, ...toSync.map((r) => r.id)]));
+    for (const r of toSync) api(`/api/rooms/${snap.code}`, { body: { action: "been", pid, restaurantId: r.id, been: true } }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const toggleBeen = useCallback(
+    (r: Restaurant) => {
+      const next = !been.has(r.id);
+      haptic();
+      setBeenState((prev) => {
+        const s = new Set(prev);
+        if (next) s.add(r.id);
+        else s.delete(r.id);
+        return s;
+      });
+      setBeen(r.id, next);
+      api(`/api/rooms/${snap.code}`, { body: { action: "been", pid, restaurantId: r.id, been: next } }).catch(() => {});
+    },
+    [been, snap.code, pid],
+  );
+
+  const voted: Record<string, boolean> = { ...snap.myVotes, ...local };
+  for (const id of undone) if (!(id in local)) delete voted[id];
   const remaining = order.filter((r) => !(r.id in voted));
   const total = order.length;
   const done = total - remaining.length;
@@ -64,11 +95,31 @@ export default function Swipe({ snap, room }: { snap: Snapshot; room: Room }) {
       if (phase !== "swiping") return;
       setExitDir(liked ? 1 : -1);
       setLocal((m) => ({ ...m, [r.id]: liked }));
+      setHistory((h) => [...h, r.id]);
       haptic(liked ? "medium" : "light");
       sendVote(r.id, liked);
     },
     [phase, sendVote],
   );
+
+  const canUndo = history.length > 0 && now < endsAt && now >= startsAt;
+  const undo = useCallback(() => {
+    const id = history[history.length - 1];
+    if (!id) return;
+    haptic();
+    setHistory((h) => h.slice(0, -1));
+    setLocal((m) => {
+      const n = { ...m };
+      delete n[id];
+      return n;
+    });
+    setUndone((u) => new Set(u).add(id));
+    finishedSent.current = false;
+    const p = Promise.allSettled(pending.current).then(() =>
+      api(`/api/rooms/${snap.code}`, { body: { action: "undo", pid, round: snap.round, restaurantId: id } }).catch(() => {}),
+    );
+    pending.current.push(p);
+  }, [history, snap.code, snap.round, pid]);
 
   // Tell the server once we're out of cards (after our votes have landed).
   useEffect(() => {
@@ -143,7 +194,7 @@ export default function Swipe({ snap, room }: { snap: Snapshot; room: Room }) {
       {/* Deck */}
       <div className="relative min-h-0 flex-1">
         {(phase === "done" || phase === "timeup") && (
-          <DonePanel phase={phase} done={done} total={total} secsLeft={secsLeft} stillChoosing={stillChoosing} />
+          <DonePanel phase={phase} done={done} total={total} secsLeft={secsLeft} stillChoosing={stillChoosing} onUndo={canUndo ? undo : undefined} />
         )}
         <AnimatePresence custom={exitDir}>
           {phase !== "timeup" &&
@@ -151,7 +202,17 @@ export default function Swipe({ snap, room }: { snap: Snapshot; room: Room }) {
               .slice(0, 2)
               .reverse()
               .map((r) => (
-                <SwipeCard key={r.id} r={r} isTop={r.id === top?.id} exitDir={exitDir} onDecide={(liked) => decide(r, liked)} disabled={phase !== "swiping"} />
+                <SwipeCard
+                  key={r.id}
+                  r={r}
+                  isTop={r.id === top?.id}
+                  exitDir={exitDir}
+                  onDecide={(liked) => decide(r, liked)}
+                  disabled={phase !== "swiping"}
+                  been={been.has(r.id)}
+                  onToggleBeen={() => toggleBeen(r)}
+                  onInfo={() => setDetails(r)}
+                />
               ))}
         </AnimatePresence>
         <AnimatePresence>{phase === "countdown" && <Countdown n={countdown} total={total} />}</AnimatePresence>
@@ -160,14 +221,25 @@ export default function Swipe({ snap, room }: { snap: Snapshot; room: Room }) {
       {/* Actions */}
       <div className="flex items-center justify-center gap-7 pt-4 pb-1">
         <ActionButton kind="no" disabled={phase !== "swiping" || !top} onClick={() => top && decide(top, false)} />
-        <span className="w-14 text-center text-[13px] text-muted tabular-nums">
-          {Math.min(done + (phase === "swiping" ? 1 : 0), total)} / {total}
-        </span>
+        <div className="flex w-14 flex-col items-center gap-1">
+          <span className="text-[13px] text-muted tabular-nums">
+            {Math.min(done + (phase === "swiping" ? 1 : 0), total)} / {total}
+          </span>
+          <button
+            onClick={undo}
+            disabled={!canUndo || phase !== "swiping"}
+            aria-label="Undo last swipe"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-[16px] text-ink-2 transition-opacity hover:bg-sand disabled:opacity-0"
+          >
+            ↺
+          </button>
+        </div>
         <ActionButton kind="yes" disabled={phase !== "swiping" || !top} onClick={() => top && decide(top, true)} />
       </div>
       {!demo && snap.restaurants.some((r) => r.source === "google") && (
         <p className="pt-1 text-center text-[10px] text-muted/80">Restaurant info &amp; photos from Google</p>
       )}
+      <DetailsSheet r={details} onClose={() => setDetails(null)} />
     </Screen>
   );
 }
@@ -216,7 +288,21 @@ function Countdown({ n, total }: { n: number; total: number }) {
   );
 }
 
-function DonePanel({ phase, done, total, secsLeft, stillChoosing }: { phase: "done" | "timeup"; done: number; total: number; secsLeft: number; stillChoosing: number }) {
+function DonePanel({
+  phase,
+  done,
+  total,
+  secsLeft,
+  stillChoosing,
+  onUndo,
+}: {
+  phase: "done" | "timeup";
+  done: number;
+  total: number;
+  secsLeft: number;
+  stillChoosing: number;
+  onUndo?: () => void;
+}) {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.96 }}
@@ -254,6 +340,11 @@ function DonePanel({ phase, done, total, secsLeft, stillChoosing }: { phase: "do
         </>
       )}
       <Spinner className="mt-6" />
+      {onUndo && phase === "done" && (
+        <button onClick={onUndo} className="mt-5 text-[14px] text-muted underline underline-offset-4">
+          ↺ Undo last swipe
+        </button>
+      )}
     </motion.div>
   );
 }
@@ -283,18 +374,30 @@ function SwipeCard({
   exitDir,
   onDecide,
   disabled,
+  been,
+  onToggleBeen,
+  onInfo,
 }: {
   r: Restaurant;
   isTop: boolean;
   exitDir: number;
   onDecide: (liked: boolean) => void;
   disabled: boolean;
+  been: boolean;
+  onToggleBeen: () => void;
+  onInfo: () => void;
 }) {
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-260, 260], [-14, 14]);
   const yesOpacity = useTransform(x, [25, SWIPE_DISTANCE], [0, 1]);
   const noOpacity = useTransform(x, [-SWIPE_DISTANCE, -25], [1, 0]);
   const crossed = useRef(false);
+  const photoRef = useRef<HTMLDivElement>(null);
+  const photos = r.photos?.length ? r.photos : r.photoUrl ? [{ url: r.photoUrl, attribution: r.photoAttribution }] : [];
+  const [idx, setIdx] = useState(0);
+  const photo = photos[idx];
+  const chip = hoursChip(r);
+  const blurb = r.aiSummary ?? r.description;
 
   function onDrag(_: unknown, info: PanInfo) {
     const past = Math.abs(info.offset.x) > SWIPE_DISTANCE;
@@ -308,6 +411,17 @@ function SwipeCard({
     if (offset.x > SWIPE_DISTANCE || velocity.x > SWIPE_VELOCITY) onDecide(true);
     else if (offset.x < -SWIPE_DISTANCE || velocity.x < -SWIPE_VELOCITY) onDecide(false);
   }
+  // Tap the left/right side of the photo to flip through photos (only fires when not dragging).
+  function onTap(e: MouseEvent | TouchEvent | PointerEvent) {
+    if (!isTop || photos.length < 2) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("button") || !photoRef.current?.contains(target)) return;
+    const rect = photoRef.current.getBoundingClientRect();
+    const clientX = "clientX" in e ? e.clientX : (e as TouchEvent).changedTouches?.[0]?.clientX ?? 0;
+    const left = clientX - rect.left < rect.width / 2;
+    setIdx((i) => (left ? Math.max(0, i - 1) : Math.min(photos.length - 1, i + 1)));
+    haptic("light");
+  }
 
   return (
     <motion.div
@@ -318,6 +432,7 @@ function SwipeCard({
       dragElastic={0.9}
       onDrag={onDrag}
       onDragEnd={onDragEnd}
+      onTap={onTap}
       initial={{ scale: 0.94, y: 14, opacity: 0 }}
       animate={isTop ? { scale: 1, y: 0, opacity: 1 } : { scale: 0.95, y: 12, opacity: 1 }}
       custom={exitDir}
@@ -334,9 +449,42 @@ function SwipeCard({
       whileDrag={{ cursor: "grabbing" }}
     >
       <article className="relative flex h-full flex-col overflow-hidden rounded-[28px] bg-paper shadow-[var(--shadow-card)] select-none">
-        <div className="relative min-h-0 flex-1 overflow-hidden bg-sand">
-          <RestaurantImage r={r} bare />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/75 via-black/25 to-transparent" />
+        <div ref={photoRef} className="relative min-h-0 flex-1 overflow-hidden bg-sand">
+          <RestaurantImage r={r} bare src={photo?.url} key={photo?.url ?? "none"} />
+          {/* Preload the next photo so flipping feels instant */}
+          {isTop && photos[idx + 1] && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photos[idx + 1].url} alt="" className="hidden" />
+          )}
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/35 to-transparent" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/80 via-black/25 to-transparent" />
+
+          {photos.length > 1 && (
+            <div className="absolute inset-x-3 top-2.5 flex gap-1">
+              {photos.map((p, i) => (
+                <span key={p.url} className={cx("h-[3px] flex-1 rounded-full", i === idx ? "bg-white" : "bg-white/35")} />
+              ))}
+            </div>
+          )}
+
+          <div className="absolute inset-x-3 top-6 flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onPointerDownCapture={(e) => e.stopPropagation()}
+              onClick={onToggleBeen}
+              aria-pressed={been}
+              className={cx(
+                "rounded-full px-3 py-1 text-[12px] font-medium backdrop-blur transition-colors",
+                been ? "bg-white text-ink" : "bg-black/25 text-white/85 ring-1 ring-white/30",
+              )}
+            >
+              {been ? "✓ Been here" : "Been here?"}
+            </button>
+            {photo?.attribution && (
+              <span className="mt-1 max-w-[50%] truncate text-[10px] text-white/70 drop-shadow">Photo: {photo.attribution.name}</span>
+            )}
+          </div>
+
           <div className="absolute inset-x-0 bottom-0 p-5 text-white">
             <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[12px] font-medium tracking-wide text-white/85 uppercase">
               <span>{r.cuisine}</span>
@@ -346,33 +494,49 @@ function SwipeCard({
                   <span>{r.neighborhood}</span>
                 </>
               )}
-              {r.openNow === true && <span className="ml-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] backdrop-blur">Open now</span>}
             </div>
-            <h2 className="font-display text-[34px] leading-[1.02] tracking-tight [text-wrap:balance]">{r.name}</h2>
+            <div className="flex items-end justify-between gap-3">
+              <h2 className="font-display text-[34px] leading-[1.02] tracking-tight [text-wrap:balance]">{r.name}</h2>
+              <button
+                type="button"
+                onPointerDownCapture={(e) => e.stopPropagation()}
+                onClick={onInfo}
+                aria-label={`More about ${r.name}`}
+                className="mb-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/20 font-display text-[18px] text-white italic ring-1 ring-white/40 backdrop-blur"
+              >
+                i
+              </button>
+            </div>
+            {chip && (
+              <span
+                className={cx(
+                  "mt-2 inline-block rounded-full px-2.5 py-0.5 text-[12px] font-medium backdrop-blur",
+                  chip.warn ? "bg-tomato/90 text-white" : "bg-white/20 text-white",
+                )}
+              >
+                {chip.text}
+              </span>
+            )}
           </div>
-          {r.photoAttribution && (
-            <span className="absolute top-3 right-4 max-w-[60%] truncate text-[10px] text-white/70 drop-shadow">
-              Photo: {r.photoAttribution.name}
-            </span>
-          )}
 
           {/* Stamps */}
           <motion.span
             style={{ opacity: yesOpacity }}
-            className="absolute top-6 left-5 -rotate-12 rounded-xl border-[3px] border-tomato bg-white/90 px-3 py-1 font-display text-[30px] font-semibold tracking-wide text-tomato"
+            className="pointer-events-none absolute top-16 left-5 -rotate-12 rounded-xl border-[3px] border-tomato bg-white/90 px-3 py-1 font-display text-[30px] font-semibold tracking-wide text-tomato"
           >
             YES ♥
           </motion.span>
           <motion.span
             style={{ opacity: noOpacity }}
-            className="absolute top-6 right-5 rotate-12 rounded-xl border-[3px] border-ink bg-white/90 px-3 py-1 font-display text-[30px] font-semibold tracking-wide text-ink"
+            className="pointer-events-none absolute top-16 right-5 rotate-12 rounded-xl border-[3px] border-ink bg-white/90 px-3 py-1 font-display text-[30px] font-semibold tracking-wide text-ink"
           >
             PASS
           </motion.span>
         </div>
-        <div className="flex shrink-0 flex-col gap-2 px-5 pt-4 pb-5">
+        <div className="flex shrink-0 flex-col gap-2 px-5 pt-3.5 pb-4">
           <MetaRow r={r} />
-          <p className="line-clamp-2 text-[15px] leading-snug text-ink-2">{r.description}</p>
+          {blurb && <p className="line-clamp-2 text-[14px] leading-snug text-ink-2">{blurb}</p>}
+          <TagRow tags={r.tags} max={3} oneLine />
         </div>
       </article>
     </motion.div>

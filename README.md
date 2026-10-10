@@ -108,6 +108,12 @@ BASE=http://localhost:3100 node tests/e2e-api.mjs   # 20 multiplayer scenarios w
 - "Majority" = the top spot got ♥ from more than half of the friends who voted. If no spot gets a majority, the app suggests a fresh round.
 - If the host leaves, the host role passes to the next friend automatically.
 
+**On each card:** up to 6 Google photos (tap the left/right side to flip), closing time ("Open till 11 PM"), rating, price, distance, Google's Gemini summary and up to 3 amenity tags. Tap **i** for hours, all photos, a recent review, phone and address. **Been here?** marks a place you've visited. It's remembered on your device and shown to the group with the results. **↺** undoes your last swipe.
+
+**"Open now"** means open for at least the next 90 minutes, using Google's `nextCloseTime`.
+
+**Group size:** no practical limit (a sanity cap of 100 stops runaway rooms).
+
 **Data honesty:** Price shows "Price unavailable" when Google doesn't provide one. "Book a Table" only appears when a real reservation URL exists (the Places API doesn't provide one, so in practice it's hidden). Google photo author attributions are shown on every photo.
 
 ## Project map

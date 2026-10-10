@@ -5,7 +5,9 @@ import { DECK_MAX, DECK_MIN, diversify, haversineMi } from "./logic.ts";
 import { LA_CENTER, NEIGHBORHOODS, findNeighborhood } from "./neighborhoods.ts";
 import type { Cuisine, Filters, Restaurant } from "./types.ts";
 
-const PLACES_URL = "https://places.googleapis.com/v1/places:searchText";
+// Overridable only so automated tests can point at a fake Google server.
+const PLACES_BASE = process.env.GOOGLE_PLACES_BASE_URL || "https://places.googleapis.com";
+const PLACES_URL = `${PLACES_BASE}/v1/places:searchText`;
 
 export function placesConfigured(): boolean {
   return !!process.env.GOOGLE_PLACES_API_KEY;
@@ -231,6 +233,30 @@ const FIELD_MASK = [
   "places.businessStatus",
 ].join(",");
 
+// Richer details. If Google ever rejects one of these fields, we fall back to FIELD_MASK.
+const RICH_FIELD_MASK = [
+  FIELD_MASK.replace("places.currentOpeningHours.openNow", "places.currentOpeningHours"),
+  "places.utcOffsetMinutes",
+  "places.nationalPhoneNumber",
+  "places.generativeSummary",
+  "places.reviews",
+  "places.reservable",
+  "places.servesCocktails",
+  "places.servesVegetarianFood",
+  "places.servesBrunch",
+  "places.servesDessert",
+  "places.servesWine",
+  "places.servesBeer",
+  "places.liveMusic",
+  "places.allowsDogs",
+  "places.goodForChildren",
+  "places.parkingOptions",
+].join(",");
+let richFieldsOk = true;
+
+/** A place counts as "open" only if it stays open at least this long after the round starts. */
+export const MIN_OPEN_MINUTES = 90;
+
 interface GPlace {
   id: string;
   displayName?: { text: string };
@@ -244,7 +270,27 @@ interface GPlace {
   priceRange?: { startPrice?: { units?: string }; endPrice?: { units?: string } };
   primaryTypeDisplayName?: { text: string };
   photos?: { name: string; authorAttributions?: { displayName: string; uri?: string }[] }[];
-  currentOpeningHours?: { openNow?: boolean };
+  currentOpeningHours?: { openNow?: boolean; nextCloseTime?: string; weekdayDescriptions?: string[] };
+  utcOffsetMinutes?: number;
+  nationalPhoneNumber?: string;
+  generativeSummary?: { overview?: { text?: string } };
+  reviews?: {
+    rating?: number;
+    text?: { text?: string };
+    relativePublishTimeDescription?: string;
+    authorAttribution?: { displayName?: string };
+  }[];
+  reservable?: boolean;
+  servesCocktails?: boolean;
+  servesVegetarianFood?: boolean;
+  servesBrunch?: boolean;
+  servesDessert?: boolean;
+  servesWine?: boolean;
+  servesBeer?: boolean;
+  liveMusic?: boolean;
+  allowsDogs?: boolean;
+  goodForChildren?: boolean;
+  parkingOptions?: Record<string, boolean>;
   websiteUri?: string;
   googleMapsUri?: string;
   editorialSummary?: { text: string };
@@ -254,16 +300,28 @@ interface GPlace {
 }
 
 async function searchText(body: Record<string, unknown>): Promise<GPlace[]> {
-  const res = await fetch(PLACES_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY!,
-      "X-Goog-FieldMask": FIELD_MASK,
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(8000),
-  });
+  const send = (mask: string) =>
+    fetch(PLACES_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY!,
+        "X-Goog-FieldMask": mask,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(8000),
+    });
+  let res = await send(richFieldsOk ? RICH_FIELD_MASK : FIELD_MASK);
+  if (!res.ok && res.status === 400 && richFieldsOk) {
+    const text = await res.text().catch(() => "");
+    if (/field|mask/i.test(text)) {
+      console.warn("Rich Places fields rejected; using basic fields.", text.slice(0, 200));
+      richFieldsOk = false;
+      res = await send(FIELD_MASK);
+    } else {
+      throw new Error(`Places searchText 400: ${text.slice(0, 300)}`);
+    }
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Places searchText ${res.status}: ${text.slice(0, 300)}`);
@@ -315,6 +373,8 @@ async function googleShortlist(filters: Filters, origin: Origin, exclude: Set<st
     const r = toRestaurant(p, c, origin);
     if (filters.radius != null && r.distanceMi != null && r.distanceMi > filters.radius * 1.15) continue;
     if (filters.outdoor && p.outdoorSeating === false) continue;
+    // "Open now" means open for a while yet — skip places about to close.
+    if (filters.openNow && r.minutesToClose != null && r.minutesToClose < MIN_OPEN_MINUTES) continue;
     const reviews = r.reviewCount ?? 0;
     const score = (r.rating ?? 3.6) + Math.min(Math.log10(reviews + 1), 4) * 0.2 - (r.distanceMi ?? 0) * 0.04;
     candidates.push({ r, group: c ?? r.cuisine, score });
@@ -341,6 +401,11 @@ function toRestaurant(p: GPlace, queried: Cuisine | null, origin: Origin): Resta
   const priceText = start && end ? `$${start}–${end}` : start ? `$${start}+` : null;
   const photo = p.photos?.[0];
   const attribution = photo?.authorAttributions?.[0];
+  const photos = (p.photos ?? []).slice(0, 6).map((ph) => {
+    const a = ph.authorAttributions?.[0];
+    return { url: `/api/photo?ref=${encodeURIComponent(ph.name)}`, attribution: a ? { name: a.displayName, uri: a.uri } : null };
+  });
+  const hours = describeHours(p);
 
   // Short description: Google's editorial summary when present, otherwise facts we actually have.
   const facts = [
@@ -369,6 +434,68 @@ function toRestaurant(p: GPlace, queried: Cuisine | null, origin: Origin): Resta
     mapsUrl: p.googleMapsUri ?? mapsSearchUrl(p.displayName!.text, p.id),
     reservationUrl: null, // Places API doesn't expose reservation URLs; never guess one.
     source: "google",
+    photos,
+    closesAt: hours.closesAt,
+    minutesToClose: hours.minutesToClose,
+    hoursToday: hours.today,
+    weekHours: p.currentOpeningHours?.weekdayDescriptions ?? null,
+    tags: tagsFor(p),
+    aiSummary: p.generativeSummary?.overview?.text ?? null,
+    review: pickReview(p),
+    phone: p.nationalPhoneNumber ?? null,
+    reservable: p.reservable ?? null,
+  };
+}
+
+function describeHours(p: GPlace): { closesAt: string | null; minutesToClose: number | null; today: string | null } {
+  const offset = p.utcOffsetMinutes ?? -420; // default to LA (PDT) if Google omits it
+  const now = Date.now();
+  const local = new Date(now + offset * 60_000);
+  const days = p.currentOpeningHours?.weekdayDescriptions;
+  const today = days?.length === 7 ? days[(local.getUTCDay() + 6) % 7] : null; // Google lists Monday first
+  const next = p.currentOpeningHours?.nextCloseTime;
+  if (!p.currentOpeningHours?.openNow || !next) return { closesAt: null, minutesToClose: null, today };
+  const close = Date.parse(next);
+  if (!Number.isFinite(close)) return { closesAt: null, minutesToClose: null, today };
+  const closeLocal = new Date(close + offset * 60_000);
+  const h = closeLocal.getUTCHours();
+  const m = closeLocal.getUTCMinutes();
+  const label = `${h % 12 || 12}${m ? `:${String(m).padStart(2, "0")}` : ""} ${h < 12 ? "AM" : "PM"}`;
+  return { closesAt: label, minutesToClose: Math.round((close - now) / 60_000), today };
+}
+
+function tagsFor(p: GPlace): string[] {
+  const park = p.parkingOptions ?? {};
+  const t: [boolean | undefined, string][] = [
+    [p.reservable, "Takes reservations"],
+    [p.outdoorSeating, "Outdoor seating"],
+    [p.servesCocktails, "Cocktails"],
+    [p.servesVegetarianFood, "Vegetarian options"],
+    [p.goodForGroups, "Good for groups"],
+    [p.liveMusic, "Live music"],
+    [p.servesBrunch, "Brunch"],
+    [p.servesWine, "Wine"],
+    [p.servesBeer, "Beer"],
+    [p.servesDessert, "Dessert"],
+    [park.valetParking, "Valet"],
+    [park.freeParkingLot || park.freeGarageParking || park.freeStreetParking, "Free parking"],
+    [p.goodForChildren, "Kid-friendly"],
+    [p.allowsDogs, "Dog-friendly"],
+  ];
+  return t.filter(([on]) => on === true).map(([, label]) => label);
+}
+
+function pickReview(p: GPlace): Restaurant["review"] {
+  const good = (p.reviews ?? [])
+    .filter((r) => r.text?.text && r.text.text.length > 40 && (r.rating ?? 5) >= 4)
+    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))[0];
+  if (!good) return null;
+  const text = good.text!.text!.replace(/\s+/g, " ").trim();
+  return {
+    text: text.length > 220 ? text.slice(0, 217).replace(/\s+\S*$/, "") + "…" : text,
+    author: good.authorAttribution?.displayName ?? "A Google reviewer",
+    rating: good.rating ?? null,
+    when: good.relativePublishTimeDescription ?? null,
   };
 }
 

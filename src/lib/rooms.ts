@@ -228,6 +228,33 @@ export async function castVote(code: string, pid: unknown, body: { round?: unkno
   });
 }
 
+/** Undo my last swipe: forget the vote so the card comes back. */
+export async function undoVote(code: string, pid: unknown, body: { round?: unknown; restaurantId?: unknown }) {
+  const room = await loadRoom(code);
+  const me = await requireParticipant(code, pid);
+  if (room.state !== "swiping" || body.round !== room.round) throw new ApiError(409, "This round is over.", "ROUND_OVER");
+  if (room.endsAt && Date.now() > room.endsAt) throw new ApiError(409, "Time's up!", "ROUND_OVER");
+  await getStore().deleteVote(code, room.round, me.id, String(body.restaurantId ?? ""));
+  if (me.finishedRound >= room.round) await getStore().patchParticipant(code, me.id, { finishedRound: room.round - 1 });
+}
+
+/**
+ * "I've been here." Stored as a vote in round 0 (real rounds start at 1), so it needs no extra table
+ * and survives across rounds in the same room. Revealed to the group only with the results.
+ */
+export const BEEN_ROUND = 0;
+export async function markBeen(code: string, pid: unknown, body: { restaurantId?: unknown; been?: unknown }) {
+  const room = await loadRoom(code);
+  const me = await requireParticipant(code, pid);
+  const rid = String(body.restaurantId ?? "");
+  if (!room.restaurants.some((r) => r.id === rid)) throw new ApiError(400, "Unknown restaurant.");
+  if (body.been) {
+    await getStore().upsertVote({ roomCode: code, round: BEEN_ROUND, participantId: me.id, restaurantId: rid, liked: true, createdAt: Date.now() });
+  } else {
+    await getStore().deleteVote(code, BEEN_ROUND, me.id, rid);
+  }
+}
+
 export async function finishSwiping(code: string, pid: unknown, round: unknown) {
   const room = await loadRoom(code);
   const me = await requireParticipant(code, pid);
@@ -287,6 +314,18 @@ export async function getSnapshot(code: string, pid: string | null): Promise<Sna
   const myVotes: Record<string, boolean> = {};
   if (me) for (const v of votes) if (v.participantId === me.id) myVotes[v.restaurantId] = v.liked;
 
+  const beenVotes = inPlay ? await store.listVotes(code, BEEN_ROUND) : [];
+  const myBeen = me ? beenVotes.filter((v) => v.participantId === me.id).map((v) => v.restaurantId) : [];
+  const revealed = room.state === "results" || room.state === "decided";
+  const been: Record<string, string[]> = {};
+  if (revealed) {
+    const nameOf = new Map(participants.map((p) => [p.id, p.name]));
+    for (const v of beenVotes) {
+      const n = nameOf.get(v.participantId);
+      if (n) (been[v.restaurantId] ??= []).push(n);
+    }
+  }
+
   return {
     serverNow: now,
     code: room.code,
@@ -309,6 +348,8 @@ export async function getSnapshot(code: string, pid: string | null): Promise<Sna
     startsAt: room.startsAt,
     endsAt: room.endsAt,
     myVotes,
+    myBeen,
+    been,
     // Never expose individual votes — only aggregates, and only after the round.
     results: room.state === "results" || room.state === "decided" ? computeResults(room.restaurants, votes, room.round) : null,
     selectedId: room.selectedId,

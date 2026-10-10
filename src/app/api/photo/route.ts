@@ -9,7 +9,8 @@ export async function GET(req: NextRequest) {
     return new Response("Not found", { status: 404 });
   }
   try {
-    const url = `https://places.googleapis.com/v1/${ref}/media?maxWidthPx=1000&maxHeightPx=1400&skipHttpRedirect=true&key=${key}`;
+    const base = process.env.GOOGLE_PLACES_BASE_URL || "https://places.googleapis.com";
+    const url = `${base}/v1/${ref}/media?maxWidthPx=1000&maxHeightPx=1400&skipHttpRedirect=true&key=${key}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
     if (!res.ok) return new Response("Photo unavailable", { status: 502 });
     const { photoUri } = (await res.json()) as { photoUri?: string };

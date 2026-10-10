@@ -160,7 +160,7 @@ export function Lobby({ snap, room, isHost }: { snap: Snapshot; room: Room; isHo
 
         <div className="mt-8 mb-3 flex items-baseline justify-between">
           <h2 className="text-[13px] font-medium tracking-[0.14em] text-muted uppercase">At the table</h2>
-          <span className="text-[13px] text-muted">{count} of 8 max</span>
+          <span className="text-[13px] text-muted">{count} here · invite as many as you like</span>
         </div>
         <PeopleList snap={snap} />
       </div>

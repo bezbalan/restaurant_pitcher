@@ -68,6 +68,25 @@ export interface Restaurant {
   /** Only set when a real reservation URL is known */
   reservationUrl: string | null;
   source: "google" | "demo";
+  // ---- Richer details (Google only; optional so older rooms still render) ----
+  /** Up to 6 photos via our proxy, best first */
+  photos?: { url: string; attribution: { name: string; uri?: string } | null }[];
+  /** e.g. "11 PM" — local closing time if open now */
+  closesAt?: string | null;
+  /** Minutes until closing, measured when the round started */
+  minutesToClose?: number | null;
+  /** e.g. "Monday: 5:00 – 11:00 PM" for today */
+  hoursToday?: string | null;
+  /** Full week, Monday first */
+  weekHours?: string[] | null;
+  /** Amenity / offering tags from Google, most useful first */
+  tags?: string[];
+  /** AI overview from Google Maps (needs "Summarized with Gemini" attribution) */
+  aiSummary?: string | null;
+  /** One helpful review snippet, with author attribution */
+  review?: { text: string; author: string; rating: number | null; when: string | null } | null;
+  phone?: string | null;
+  reservable?: boolean | null;
 }
 
 export interface Participant {
@@ -140,6 +159,9 @@ export interface PublicParticipant {
   inRound: boolean;
 }
 
+/** restaurantId → names of friends who've been there (shown after the round) */
+export type BeenMap = Record<string, string[]>;
+
 export interface Snapshot {
   serverNow: number;
   code: string;
@@ -153,6 +175,10 @@ export interface Snapshot {
   startsAt: number | null;
   endsAt: number | null;
   myVotes: Record<string, boolean>;
+  /** Restaurants I've marked as "been here" */
+  myBeen: string[];
+  /** Who has been where — only revealed with the results */
+  been: BeenMap;
   results: Results | null;
   selectedId: string | null;
   dataSource: "google" | "demo" | null;

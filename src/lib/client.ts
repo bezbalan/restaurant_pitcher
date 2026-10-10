@@ -70,6 +70,23 @@ export function clearRoomPid(code: string) {
   }
 }
 
+// ---------------------------------------------------------------- "been here" (remembered on this device)
+
+const BEEN_KEY = "dinnerclub:been";
+export function getBeenSet(): Set<string> {
+  try {
+    return new Set(JSON.parse(safeGet(BEEN_KEY) ?? "[]") as string[]);
+  } catch {
+    return new Set();
+  }
+}
+export function setBeen(id: string, been: boolean) {
+  const s = getBeenSet();
+  if (been) s.add(id);
+  else s.delete(id);
+  safeSet(BEEN_KEY, JSON.stringify([...s].slice(-500)));
+}
+
 // ---------------------------------------------------------------- haptics
 
 let switchEl: HTMLLabelElement | null = null;

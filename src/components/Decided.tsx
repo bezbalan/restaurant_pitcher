@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { directionsUrl, haptic, shareLink } from "@/lib/client";
 import type { Snapshot } from "@/lib/types";
 import type { useRoom } from "@/lib/useRoom";
+import { TagRow, hoursChip } from "./Details";
 import { RoomHeader } from "./RoomClient";
 import { Button, MetaRow, RestaurantImage, Screen } from "./ui";
 
@@ -50,7 +51,7 @@ export default function Decided({ snap, room, isHost }: { snap: Snapshot; room: 
           className="mt-6 overflow-hidden rounded-[28px] bg-paper shadow-[var(--shadow-card)]"
         >
           <div className="relative h-64 bg-sand">
-            <RestaurantImage r={r} />
+            <RestaurantImage r={r} src={r.photos?.[0]?.url} />
             {r.photoAttribution && <span className="absolute right-3 bottom-2 text-[10px] text-white/80 drop-shadow">Photo: {r.photoAttribution.name}</span>}
           </div>
           <div className="p-5">
@@ -60,6 +61,20 @@ export default function Decided({ snap, room, isHost }: { snap: Snapshot; room: 
             </p>
             <MetaRow r={r} className="mt-1" />
             {r.address && <p className="mt-2 text-[15px] text-ink">{r.address}</p>}
+            {hoursChip(r) && <p className="mt-1 text-[14px] text-ink-2">{hoursChip(r)!.text}</p>}
+            {r.phone && (
+              <a href={`tel:${r.phone.replace(/[^\d+]/g, "")}`} className="mt-1 block text-[14px] text-tomato-deep underline underline-offset-2">
+                Call {r.phone}
+              </a>
+            )}
+            {r.tags && r.tags.length > 0 && (
+              <div className="mt-3">
+                <TagRow tags={r.tags} max={4} />
+              </div>
+            )}
+            {snap.been[r.id]?.length ? (
+              <p className="mt-2 text-[13px] text-olive">✓ {snap.been[r.id].join(", ")} {snap.been[r.id].length === 1 ? "has" : "have"} been here</p>
+            ) : null}
             {result && (
               <p className="mt-2 text-[14px] text-ink-2">
                 <span className="text-tomato">♥</span> {result.yes} of {result.votes} {result.votes === 1 ? "vote" : "votes"}

@@ -13,6 +13,7 @@ export interface Store {
   upsertParticipant(p: Participant): Promise<void>;
   patchParticipant(code: string, id: string, patch: Partial<Participant>): Promise<void>;
   upsertVote(v: Vote): Promise<void>;
+  deleteVote(code: string, round: number, participantId: string, restaurantId: string): Promise<void>;
   listVotes(code: string, round: number): Promise<Vote[]>;
   /** null when healthy, otherwise a human-readable setup problem */
   health(): Promise<string | null>;
@@ -86,6 +87,13 @@ function memoryStore(): Store {
       if (i >= 0) list[i] = clone(v);
       else list.push(clone(v));
       db.votes.set(v.roomCode, list);
+    },
+    async deleteVote(code, round, participantId, restaurantId) {
+      const list = db.votes.get(code) ?? [];
+      db.votes.set(
+        code,
+        list.filter((x) => !(x.round === round && x.participantId === participantId && x.restaurantId === restaurantId)),
+      );
     },
     async listVotes(code, round) {
       return clone((db.votes.get(code) ?? []).filter((v) => v.round === round));
@@ -228,6 +236,12 @@ function supabaseStore(url: string, key: string): Store {
         body: JSON.stringify(toRow(v, VOTE_COLS)),
         prefer: "resolution=merge-duplicates,return=minimal",
       });
+    },
+    async deleteVote(code, round, participantId, restaurantId) {
+      await req(
+        `/dc_votes?room_code=eq.${enc(code)}&round=eq.${round}&participant_id=eq.${enc(participantId)}&restaurant_id=eq.${enc(restaurantId)}`,
+        { method: "DELETE", prefer: "return=minimal" },
+      );
     },
     async listVotes(code, round) {
       const rows = await req(`/dc_votes?room_code=eq.${enc(code)}&round=eq.${round}&select=*`);

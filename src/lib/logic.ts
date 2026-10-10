@@ -9,7 +9,8 @@ export const VOTE_GRACE_MS = 2500;
 export const INACTIVE_MS = 25_000;
 /** A host not seen for this long hands the host role to the next active friend */
 export const HOST_HANDOFF_MS = 45_000;
-export const MAX_PARTICIPANTS = 8;
+/** No practical limit on friends — this only guards against runaway/abusive rooms. */
+export const MAX_PARTICIPANTS = 100;
 export const DECK_MIN = 6;
 export const DECK_MAX = 12;
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ClientError, haptic } from "@/lib/client";
 import type { RankedResult, Snapshot } from "@/lib/types";
 import type { useRoom } from "@/lib/useRoom";
+import { DetailsSheet, TagRow, hoursChip } from "./Details";
 import { RoomHeader } from "./RoomClient";
 import { Button, MetaRow, RestaurantImage, Screen, cx } from "./ui";
 
@@ -14,6 +15,7 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [details, setDetails] = useState<RankedResult["restaurant"] | null>(null);
   const host = snap.participants.find((p) => p.isHost);
   const top = results.ranked.filter((r) => r.yes > 0).slice(0, 3);
   const rest = results.ranked.filter((r) => !top.includes(r));
@@ -93,6 +95,8 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
               hostName={host?.name}
               busy={busy === r.restaurant.id}
               onPick={() => run("select", { restaurantId: r.restaurant.id }, r.restaurant.id)}
+              been={snap.been[r.restaurant.id]}
+              onDetails={() => setDetails(r.restaurant)}
             />
           ))}
         </div>
@@ -150,6 +154,7 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
           </div>
         )}
 
+        <DetailsSheet r={details} onClose={() => setDetails(null)} been={details ? snap.been[details.id] : undefined} />
         <p className="mt-8 text-center text-[12px] leading-relaxed text-muted">
           Ranked by number of hearts, then Google rating, then review count.
           <br />
@@ -169,6 +174,8 @@ function ResultCard({
   hostName,
   busy,
   onPick,
+  been,
+  onDetails,
 }: {
   r: RankedResult;
   voters: number;
@@ -178,6 +185,8 @@ function ResultCard({
   hostName?: string;
   busy: boolean;
   onPick: () => void;
+  been?: string[];
+  onDetails: () => void;
 }) {
   const rest = r.restaurant;
   const everyoneVoted = r.votes === voters;
@@ -220,6 +229,19 @@ function ResultCard({
           )}
         </div>
         <MetaRow r={rest} className="mt-1.5" />
+        {hoursChip(rest) && (
+          <p className={cx("mt-1 text-[13px]", hoursChip(rest)!.warn ? "text-tomato-deep" : "text-ink-2")}>{hoursChip(rest)!.text}</p>
+        )}
+        {big && rest.tags && rest.tags.length > 0 && (
+          <div className="mt-2">
+            <TagRow tags={rest.tags} max={4} />
+          </div>
+        )}
+        {been && been.length > 0 && (
+          <p className="mt-2 text-[13px] text-olive">
+            ✓ {been.join(", ")} {been.length === 1 ? "has" : "have"} been here
+          </p>
+        )}
 
         <div className="mt-4 flex flex-col gap-2">
           {isHost ? (
@@ -230,9 +252,12 @@ function ResultCard({
             big && <p className="text-center text-[13px] text-muted">{hostName ?? "The host"} makes the final call.</p>
           )}
           <div className="flex gap-2">
+            <Button size="sm" variant="outline" className="flex-1" onClick={onDetails}>
+              Details
+            </Button>
             <a href={rest.mapsUrl} target="_blank" rel="noreferrer" className="flex-1">
               <Button size="sm" variant="outline" className="w-full">
-                Google Maps
+                Maps
               </Button>
             </a>
             {rest.website && (

@@ -256,7 +256,7 @@ function VibeHost({ snap, room }: { snap: Snapshot; room: Room }) {
         </Section>
 
         <section className="mt-6">
-          <Toggle on={f.openNow} onChange={(v) => set("openNow", v)} label="Open now" />
+          <Toggle on={f.openNow} onChange={(v) => set("openNow", v)} label="Open now" hint="And for at least the next 90 minutes" />
           <AnimatePresence initial={false}>
             {more && (
               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
