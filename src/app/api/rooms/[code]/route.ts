@@ -11,6 +11,7 @@ import {
   markBeen,
   setDiet,
   startFaceoff,
+  rollDice,
   shareLocation,
   openVibe,
   reopenResults,
@@ -55,6 +56,9 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/rooms/[code
         break;
       case "undo":
         await undoVote(code, pid, body);
+        break;
+      case "dice":
+        await rollDice(code, pid);
         break;
       case "faceoff":
         await startFaceoff(code, pid);

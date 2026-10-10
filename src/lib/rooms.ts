@@ -305,8 +305,8 @@ export async function markBeen(code: string, pid: unknown, body: { restaurantId?
  * restaurant_id "loc:<lat>,<lng>" (again, no schema change). Coordinates never leave the server.
  */
 const LOCATION_ROUND = -1;
-async function sharedLocations(code: string): Promise<Map<string, { lat: number; lng: number }>> {
-  const [rows, ps] = await Promise.all([getStore().listVotes(code, LOCATION_ROUND), getStore().listParticipants(code)]);
+async function sharedLocations(code: string, known?: Participant[]): Promise<Map<string, { lat: number; lng: number }>> {
+  const [rows, ps] = await Promise.all([getStore().listVotes(code, LOCATION_ROUND), known ?? getStore().listParticipants(code)]);
   const here = new Set(ps.filter((p) => !p.left).map((p) => p.id));
   const out = new Map<string, { lat: number; lng: number }>();
   for (const v of rows) {
@@ -406,29 +406,42 @@ export async function selectRestaurant(code: string, pid: unknown, restaurantId:
   if (room.state !== "results" && room.state !== "decided") throw new ApiError(409, "Results aren't in yet.");
   const r = room.restaurants.find((x) => x.id === restaurantId);
   if (!r) throw new ApiError(400, "Unknown restaurant.");
-  await getStore().updateRoom(code, { state: "decided", selectedId: r.id });
+  await getStore().updateRoom(code, { state: "decided", selectedId: r.id, notice: null });
+}
+
+/** "Roll the dice" on a tie: the server picks one of the tied spots, and every phone sees it was the dice. */
+export const DICE_NOTICE = "dice";
+export async function rollDice(code: string, pid: unknown) {
+  const room = await requireHost(code, pid);
+  if (room.state !== "results") return;
+  const results = settle(computeResults(room.restaurants, await getStore().listVotes(code, room.round), room.round), room);
+  const pool = results.tiedIds.length >= 2 ? results.tiedIds : results.ranked.slice(0, 1).map((r) => r.restaurant.id);
+  if (!pool.length) throw new ApiError(409, "Nothing to pick from.");
+  const winner = pool[Math.floor(Math.random() * pool.length)];
+  await getStore().updateRoom(code, { state: "decided", selectedId: winner, notice: DICE_NOTICE }, { state: "results", round: room.round });
 }
 
 export async function reopenResults(code: string, pid: unknown) {
   const room = await requireHost(code, pid);
   if (room.state !== "decided") return;
-  await getStore().updateRoom(code, { state: "results", selectedId: null }, { state: "decided" });
+  await getStore().updateRoom(code, { state: "results", selectedId: null, notice: null }, { state: "decided" });
 }
 
 // ---------------------------------------------------------------- snapshot
 
 export async function getSnapshot(code: string, pid: string | null): Promise<Snapshot> {
   const store = getStore();
-  const room = await loadRoom(code);
-  const participants = await store.listParticipants(code);
+  // Everything that can run in parallel does — this endpoint is polled every second by every phone.
+  const [room, participants] = await Promise.all([loadRoom(code), store.listParticipants(code)]);
   const now = Date.now();
+  const pending: Promise<unknown>[] = [];
 
   // Heartbeat (throttled so we don't write on every poll)
   const me = pid ? participants.find((p) => p.id === pid) ?? null : null;
   if (me && (now - me.lastSeen > 4000 || me.left)) {
     me.lastSeen = now;
     me.left = false;
-    await store.patchParticipant(code, me.id, { lastSeen: now, left: false });
+    pending.push(store.patchParticipant(code, me.id, { lastSeen: now, left: false }));
   }
 
   // Host hand-off if the host has left
@@ -446,7 +459,13 @@ export async function getSnapshot(code: string, pid: string | null): Promise<Sna
   }
 
   const inPlay = room.state === "swiping" || room.state === "results" || room.state === "decided";
-  const votes = inPlay && room.round > 0 ? await store.listVotes(code, room.round) : [];
+  const [votes, beenVotes, located, diets] = await Promise.all([
+    inPlay && room.round > 0 ? store.listVotes(code, room.round) : Promise.resolve([]),
+    inPlay ? store.listVotes(code, BEEN_ROUND) : Promise.resolve([]),
+    room.state === "lobby" || room.state === "vibe" ? sharedLocations(code, participants) : Promise.resolve(new Map()),
+    dietsByParticipant(code),
+    ...pending,
+  ]);
   const progress = new Map<string, number>();
   for (const v of votes) if (!isSpecialVote(v.restaurantId)) progress.set(v.participantId, (progress.get(v.participantId) ?? 0) + 1);
 
@@ -461,10 +480,6 @@ export async function getSnapshot(code: string, pid: string | null): Promise<Sna
       else myVotes[v.restaurantId] = v.liked;
     }
   }
-  const located = room.state === "lobby" || room.state === "vibe" ? await sharedLocations(code) : new Map();
-  const diets = await dietsByParticipant(code);
-
-  const beenVotes = inPlay ? await store.listVotes(code, BEEN_ROUND) : [];
   const myBeen = me ? beenVotes.filter((v) => v.participantId === me.id).map((v) => v.restaurantId) : [];
   const revealed = room.state === "results" || room.state === "decided";
   const been: Record<string, string[]> = {};
@@ -477,7 +492,7 @@ export async function getSnapshot(code: string, pid: string | null): Promise<Sna
   }
 
   return {
-    serverNow: now,
+    serverNow: Date.now(),
     code: room.code,
     state: room.state,
     round: room.round,

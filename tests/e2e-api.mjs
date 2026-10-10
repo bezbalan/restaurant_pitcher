@@ -426,6 +426,19 @@ await step("three-way 100% tie → face-off → most taps wins", async () => {
   assert.ok(!fresh.data.filters.faceoff);
 });
 
+await step("tie → host rolls the dice → decided, every phone knows it was the dice", async () => {
+  const { c, pids, ids } = await tiedRoom(["Max", "Ned"]);
+  assert.equal((await act(c, pids[1], "dice")).status, 403, "host only");
+  const r = await act(c, pids[0], "dice");
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const s = await snap(c, pids[1]);
+  assert.equal(s.state, "decided");
+  assert.equal(s.notice, "dice");
+  assert.ok(ids.includes(s.selectedId));
+  await act(c, pids[0], "reopen");
+  assert.equal((await snap(c, pids[1])).notice, null, "reopening clears the dice badge");
+});
+
 await step("face-off still tied → dice decides, same answer on every phone", async () => {
   const { c, pids, ids } = await tiedRoom(["Kai", "Lou"]);
   const f = await act(c, pids[0], "faceoff");

@@ -1,6 +1,7 @@
 "use client";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { COUNTDOWN_VISIBLE_S } from "@/lib/logic";
 import { distanceLabel, priceLabel, reviewsLabel, tintFor } from "@/lib/client";
 import type { PublicParticipant, Restaurant } from "@/lib/types";
 
@@ -296,4 +297,29 @@ export function DemoBadge({ className }: { className?: string }) {
 
 export function Screen({ children, className }: { children: ReactNode; className?: string }) {
   return <main className={cx("mx-auto flex min-h-dvh w-full max-w-[480px] flex-col px-5", className)}>{children}</main>;
+}
+
+/**
+ * The big 3-2-1. While there's more than 3 seconds left (phones get the start signal a little
+ * late, so there's a buffer) it shows a gentle "Ready?" instead, so everyone sees a full 3-2-1.
+ */
+export function CountdownNumber({ seconds }: { seconds: number }) {
+  const showNumber = seconds <= COUNTDOWN_VISIBLE_S;
+  const key = showNumber ? `n${seconds}` : "ready";
+  return (
+    <div className="my-2 flex h-[128px] items-center justify-center">
+      <AnimatePresence mode="popLayout">
+        <motion.span
+          key={key}
+          initial={{ scale: 0.4, opacity: 0 }}
+          animate={showNumber ? { scale: 1, opacity: 1 } : { scale: [1, 1.06, 1], opacity: 1 }}
+          exit={{ scale: 1.6, opacity: 0 }}
+          transition={showNumber ? { type: "spring", stiffness: 400, damping: 20 } : { duration: 1.2, repeat: Infinity }}
+          className={cx("font-display leading-none text-tomato italic", showNumber ? "text-[120px]" : "text-[64px]")}
+        >
+          {showNumber ? seconds || "Go" : "Ready?"}
+        </motion.span>
+      </AnimatePresence>
+    </div>
+  );
 }

@@ -358,18 +358,37 @@ export function ShareLocation({ snap, room }: { snap: Snapshot; room: Room }) {
 /** Each friend can flag their own dietary needs; the search and the results take them into account. */
 export function DietPicker({ snap, room }: { snap: Snapshot; room: Room }) {
   const serverMine = snap.participants.find((p) => p.id === snap.me?.id)?.diet ?? [];
-  const [mine, setMine] = useState<string[] | null>(null);
-  const current = mine ?? serverMine;
+  // Your taps are the source of truth until the server agrees, so chips never flicker.
+  const [draft, setDraft] = useState<string[] | null>(null);
+  const current = draft ?? serverMine;
   const [open, setOpen] = useState(serverMine.length > 0);
+  const latest = useRef<string[]>([]);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saving = useRef<Promise<unknown>>(Promise.resolve());
+  const inFlight = useRef(0);
+
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
+  useEffect(() => {
+    if (draft && inFlight.current === 0 && !timer.current && same(draft, serverMine)) setDraft(null);
+  }, [draft, serverMine]);
 
   function toggle(key: string) {
     haptic();
     const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
-    setMine(next);
-    room
-      .act("diet", { needs: next })
-      .catch(() => {})
-      .finally(() => setMine(null));
+    setDraft(next);
+    latest.current = next;
+    // Wait for a pause in tapping, then save the whole set — one save at a time, latest wins.
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      inFlight.current++;
+      saving.current = saving.current
+        .then(() => room.act("diet", { needs: latest.current }))
+        .catch(() => {})
+        .finally(() => {
+          inFlight.current--;
+        });
+    }, 350);
   }
 
   return (

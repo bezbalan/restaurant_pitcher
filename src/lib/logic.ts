@@ -5,7 +5,14 @@ import type { Participant, Restaurant, Results, Room, Vote } from "./types.ts";
 export const ROUND_SECONDS = 75;
 /** A face-off is one tap between the tied spots — it doesn't need long. */
 export const FACEOFF_SECONDS = 20;
-export const COUNTDOWN_MS = 3500;
+/**
+ * Time between "Start" and the first card. Longer than the visible 3-2-1 on purpose: phones learn
+ * about the new round up to a couple of seconds late, so they show "Get ready" first and every
+ * phone still gets a full 3-2-1.
+ */
+export const COUNTDOWN_MS = 6000;
+/** The countdown number only shows for the final seconds; before that it says "Get ready". */
+export const COUNTDOWN_VISIBLE_S = 3;
 /** Votes are still accepted this long after the timer, for in-flight requests */
 export const VOTE_GRACE_MS = 2500;
 /** A participant not seen for this long no longer blocks an early finish */

@@ -6,7 +6,7 @@ import type { Snapshot } from "@/lib/types";
 import { useNow, type useRoom } from "@/lib/useRoom";
 import { DietRow } from "./Details";
 import { RoomHeader } from "./RoomClient";
-import { AvatarStack, MetaRow, RestaurantImage, Screen, cx } from "./ui";
+import { AvatarStack, CountdownNumber, MetaRow, RestaurantImage, Screen, cx } from "./ui";
 
 type Room = ReturnType<typeof useRoom>;
 
@@ -31,7 +31,7 @@ export default function FaceOff({ snap, room }: { snap: Snapshot; room: Room }) 
 
   const lastTick = useRef<number | null>(null);
   useEffect(() => {
-    const t = counting ? countdown : secsLeft <= 5 ? secsLeft : null;
+    const t = counting ? (countdown <= 3 ? countdown : null) : secsLeft <= 5 ? secsLeft : null;
     if (t != null && t > 0 && t !== lastTick.current) haptic("light");
     lastTick.current = t;
   }, [counting, countdown, secsLeft]);
@@ -143,17 +143,7 @@ export default function FaceOff({ snap, room }: { snap: Snapshot; room: Room }) 
               className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-[28px] bg-ivory/85 backdrop-blur-md"
             >
               <p className="text-[13px] font-medium tracking-[0.2em] text-muted uppercase">Face-off in</p>
-              <AnimatePresence mode="popLayout">
-                <motion.span
-                  key={countdown}
-                  initial={{ scale: 0.4, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 1.6, opacity: 0 }}
-                  className="my-2 font-display text-[110px] leading-none text-tomato italic"
-                >
-                  {countdown || "Go"}
-                </motion.span>
-              </AnimatePresence>
+              <CountdownNumber seconds={countdown} />
               <p className="max-w-[260px] text-center text-[15px] text-ink-2">
                 {snap.restaurants.length} spots tied. One tap each, {Math.round((endsAt - startsAt) / 1000)} seconds.
               </p>

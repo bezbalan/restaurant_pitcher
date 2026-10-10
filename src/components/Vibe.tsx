@@ -249,10 +249,9 @@ function VibeHost({ snap, room }: { snap: Snapshot; room: Room }) {
         </Section>
 
         {tableNeeds.length > 0 && (
-          <div className="mt-6 rounded-2xl border border-olive/30 bg-olive/8 px-4 py-3 text-[14px] text-ink-2">
-            <span className="text-olive">🌱 Table needs:</span> {tableNeeds.join(" · ")}
-            <span className="block text-[12px] text-muted">We&apos;ll favor places that fit and flag the rest.</span>
-          </div>
+          <p className="mt-6 text-[13px] text-muted">
+            <span className="text-olive">🌱 {tableNeeds.join(" · ")}</span>. We&apos;ll favor places that fit.
+          </p>
         )}
         <Section
           title="Craving"

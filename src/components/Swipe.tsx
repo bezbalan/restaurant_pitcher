@@ -7,7 +7,7 @@ import type { Restaurant, Snapshot } from "@/lib/types";
 import { useNow, type useRoom } from "@/lib/useRoom";
 import { DetailsSheet, DietRow, TagRow, hoursChip } from "./Details";
 import { RoomHeader } from "./RoomClient";
-import { AvatarStack, MetaRow, RestaurantImage, Screen, Spinner, cx } from "./ui";
+import { AvatarStack, CountdownNumber, MetaRow, RestaurantImage, Screen, Spinner, cx } from "./ui";
 
 type Room = ReturnType<typeof useRoom>;
 
@@ -162,7 +162,7 @@ export default function Swipe({ snap, room }: { snap: Snapshot; room: Room }) {
   const countdown = Math.max(0, Math.ceil((startsAt - now) / 1000));
   const lastTick = useRef<number | null>(null);
   useEffect(() => {
-    const t = phase === "countdown" ? countdown : phase === "swiping" && secsLeft <= 5 ? secsLeft : null;
+    const t = phase === "countdown" ? (countdown <= 3 ? countdown : null) : phase === "swiping" && secsLeft <= 5 ? secsLeft : null;
     if (t != null && t !== lastTick.current && t > 0) haptic("light");
     lastTick.current = t;
   }, [phase, countdown, secsLeft]);
@@ -293,18 +293,7 @@ function Countdown({ n, total, seconds }: { n: number; total: number; seconds: n
       className="absolute inset-0 z-30 flex flex-col items-center justify-center rounded-[28px] bg-ivory/85 backdrop-blur-md"
     >
       <p className="text-[13px] font-medium tracking-[0.2em] text-muted uppercase">Get ready</p>
-      <AnimatePresence mode="popLayout">
-        <motion.span
-          key={n}
-          initial={{ scale: 0.4, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 1.6, opacity: 0 }}
-          transition={{ type: "spring", stiffness: 400, damping: 20 }}
-          className="my-2 font-display text-[120px] leading-none text-tomato italic"
-        >
-          {n || "Go"}
-        </motion.span>
-      </AnimatePresence>
+      <CountdownNumber seconds={n} />
       <p className="max-w-[260px] text-center text-[15px] text-ink-2">
         {total} spots. {seconds} seconds. <span className="text-tomato">♥</span> the ones you&apos;d happily go to.
         <span className="mt-2 block text-[13px] text-muted">

@@ -10,6 +10,20 @@ import { Button, MetaRow, RestaurantImage, Screen, cx } from "./ui";
 
 type Room = ReturnType<typeof useRoom>;
 
+export function DiceHero() {
+  return (
+    <motion.div
+      initial={{ rotate: -720, scale: 0.2, y: -60, opacity: 0 }}
+      animate={{ rotate: 0, scale: 1, y: 0, opacity: 1 }}
+      transition={{ type: "spring", stiffness: 90, damping: 11 }}
+      className="mb-3 text-[64px] leading-none"
+      aria-hidden
+    >
+      🎲
+    </motion.div>
+  );
+}
+
 export default function Results({ snap, room, isHost }: { snap: Snapshot; room: Room; isHost: boolean }) {
   const results = snap.results!;
   const [busy, setBusy] = useState<string | null>(null);
@@ -17,13 +31,15 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
   const [showAll, setShowAll] = useState(false);
   const [details, setDetails] = useState<RankedResult["restaurant"] | null>(null);
   const host = snap.participants.find((p) => p.isHost);
-  const top = results.ranked.filter((r) => r.yes > 0 && !r.vetoed).slice(0, 3);
-  const rest = results.ranked.filter((r) => !top.includes(r));
-  const noVotes = results.voters === 0;
-  const noLikes = !noVotes && top.length === 0;
   const faceoff = !!snap.filters?.faceoff;
-  const celebrate = results.hasMajority || (faceoff && results.voters > 0);
+  const noVotes = results.voters === 0;
+  // After a face-off (or its dice roll) the spotlight is on the winner alone.
+  const winnerOnly = faceoff && !noVotes;
+  const top = winnerOnly ? results.ranked.slice(0, 1) : results.ranked.filter((r) => r.yes > 0 && !r.vetoed).slice(0, 3);
+  const rest = winnerOnly ? [] : results.ranked.filter((r) => !top.includes(r));
+  const noLikes = !noVotes && top.length === 0;
   const tied = faceoff ? [] : results.tiedIds;
+  const celebrate = winnerOnly || (results.hasMajority && tied.length < 2);
 
   useEffect(() => {
     if (celebrate) haptic("success");
@@ -43,7 +59,11 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
   }
 
   const nWay = ["", "", "Two-way", "Three-way", "Four-way"][tied.length] ?? "Big";
-  const headline = tied.length >= 2 ? (
+  const headline = winnerOnly && results.diceRoll ? (
+    <>
+      The dice <em className="text-tomato">decided!</em>
+    </>
+  ) : tied.length >= 2 ? (
     <>
       {nWay} <em className="text-tomato">tie!</em>
     </>
@@ -69,11 +89,11 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
     </>
   );
   const sub = tied.length >= 2
-    ? `${results.voters} ${results.voters === 1 ? "friend" : "friends"} voted, and ${tied.length} spots came out on top. Settle it below.`
+    ? `${tied.length} spots got the same votes. Settle it with a 20-second face-off, or let the dice pick.`
     : faceoff && !noVotes
     ? results.diceRoll
-      ? "Still tied, so the dice decided."
-      : `${results.voters} ${results.voters === 1 ? "pick" : "picks"} are in. Here's the winner.`
+      ? "The face-off was still tied, so we let fate pick."
+      : `${results.voters} ${results.voters === 1 ? "pick" : "picks"} are in. Here's your spot.`
     : noVotes
     ? "No votes came in this round. Run it back?"
     : noLikes
@@ -89,8 +109,9 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
       {celebrate && <Confetti />}
       <RoomHeader code={snap.code} demo={snap.dataSource === "demo"} />
       <div className="pt-5 pb-6">
+        {winnerOnly && results.diceRoll && <DiceHero />}
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[13px] font-medium tracking-[0.18em] text-muted uppercase">
-          {faceoff ? "⚡ Face-off results" : `Round ${snap.round} results`}
+          {faceoff ? "⚡ Face-off" : `Round ${snap.round} results`}
         </motion.p>
         <motion.h1
           initial={{ opacity: 0, y: 16, scale: 0.98 }}
@@ -102,48 +123,19 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
         </motion.h1>
         <p className="mt-2 text-[15px] text-ink-2">{sub}</p>
 
-        {results.diceRoll && (
-          <motion.div
-            initial={{ rotate: -540, scale: 0.2, opacity: 0 }}
-            animate={{ rotate: 0, scale: 1, opacity: 1 }}
-            transition={{ type: "spring", stiffness: 120, damping: 12 }}
-            className="mt-4 text-center text-[48px]"
-            aria-hidden
-          >
-            🎲
-          </motion.div>
-        )}
-        {tied.length >= 2 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-5 rounded-[24px] bg-ink p-5 text-ivory"
-          >
-            <p className="font-display text-[24px] leading-snug">🤝 How should we settle it?</p>
-            <p className="mt-1 text-[14px] text-ivory/70">
-              A 20-second face-off where everyone taps one of the tied spots, or let fate decide.
-            </p>
-            {isHost ? (
-              <div className="mt-4 flex gap-2">
-                <Button size="md" className="flex-1" loading={busy === "faceoff"} onClick={() => run("faceoff")}>
-                  ⚡ Face-off
-                </Button>
-                <Button
-                  size="md"
-                  variant="ghost"
-                  className="bg-ivory/10 !text-ivory hover:bg-ivory/20"
-                  loading={busy === "dice"}
-                  onClick={() => run("select", { restaurantId: tied[Math.floor(Math.random() * tied.length)] }, "dice")}
-                >
-                  🎲 Roll the dice
-                </Button>
-              </div>
-            ) : (
-              <p className="mt-3 text-[13px] text-ivory/60">{host?.name ?? "The host"} can start a quick face-off.</p>
-            )}
-          </motion.div>
-        )}
-        <DietReminder people={snap.participants} className="mt-5" />
+        {tied.length >= 2 &&
+          (isHost ? (
+            <div className="mt-4 flex gap-2">
+              <Button size="md" className="flex-1" loading={busy === "faceoff"} onClick={() => run("faceoff")}>
+                ⚡ Face-off
+              </Button>
+              <Button size="md" variant="outline" className="flex-1" loading={busy === "dice"} onClick={() => run("dice")}>
+                🎲 Roll the dice
+              </Button>
+            </div>
+          ) : (
+            <p className="mt-3 text-[14px] text-muted">{host?.name ?? "The host"} will settle it with a face-off or a dice roll.</p>
+          ))}
         <div className="mt-6 space-y-4">
           {top.map((r, i) => (
             <ResultCard
@@ -162,10 +154,11 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
           ))}
         </div>
 
+        <DietReminder people={snap.participants} className="mt-4 px-1" />
         {error && <p className="mt-4 rounded-2xl bg-tomato-soft px-4 py-3 text-center text-[14px] text-tomato-deep">{error}</p>}
 
         {/* Next round */}
-        {(!celebrate || noLikes || noVotes) && (
+        {(!celebrate || noLikes || noVotes) && tied.length < 2 && !winnerOnly && (
           <div className="mt-6 rounded-[24px] bg-ink p-5 text-ivory">
             <p className="font-display text-[22px] leading-snug">Run a quick second round?</p>
             <p className="mt-1 text-[14px] text-ivory/65">Same vibe, all-new restaurants, another quick round.</p>
@@ -364,7 +357,7 @@ function ResultCard({
 
 const CONFETTI_COLORS = ["#c8553d", "#1e1a17", "#6b7559", "#e9b8a6", "#d9c7a7"];
 
-function Confetti() {
+export function Confetti() {
   const pieces = useMemo(
     () =>
       Array.from({ length: 42 }, (_, i) => ({

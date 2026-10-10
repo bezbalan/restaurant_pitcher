@@ -53,10 +53,10 @@ export function DietReminder({ people, className }: { people: PublicParticipant[
   const withNeeds = people.filter((p) => p.diet.length);
   if (!withNeeds.length) return null;
   return (
-    <div className={cx("rounded-2xl border border-olive/30 bg-olive/8 px-4 py-3 text-[14px] text-ink-2", className)}>
-      <span className="text-olive">🌱 Heads up:</span> {withNeeds.map((p) => `${p.name}: ${p.diet.map(dietLabel).join(", ")}`).join(" · ")}
-      <span className="mt-0.5 block text-[12px] text-muted">Diet badges come from Google listings and reviews. Check the menu or call ahead to be sure.</span>
-    </div>
+    <p className={cx("text-[13px] leading-relaxed text-muted", className)}>
+      <span className="text-olive">🌱 {withNeeds.map((p) => `${p.name}: ${p.diet.map(dietLabel).join(", ")}`).join(" · ")}.</span>{" "}
+      Badges come from Google listings and reviews, so check the menu or call ahead.
+    </p>
   );
 }
 

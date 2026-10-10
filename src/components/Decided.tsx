@@ -7,6 +7,7 @@ import type { Snapshot } from "@/lib/types";
 import type { useRoom } from "@/lib/useRoom";
 import { DietReminder, DietRow, TagRow, hoursChip } from "./Details";
 import { RoomHeader } from "./RoomClient";
+import { Confetti, DiceHero } from "./Results";
 import { Button, MetaRow, RestaurantImage, Screen } from "./ui";
 
 type Room = ReturnType<typeof useRoom>;
@@ -30,10 +31,12 @@ export default function Decided({ snap, room, isHost }: { snap: Snapshot; room: 
 
   return (
     <Screen className="safe-top safe-bottom">
+      <Confetti />
       <RoomHeader code={snap.code} demo={r.source === "demo"} />
       <div className="flex flex-1 flex-col pt-5">
+        {snap.notice === "dice" && <DiceHero />}
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[13px] font-medium tracking-[0.18em] text-muted uppercase">
-          It&apos;s decided!
+          {snap.notice === "dice" ? "The dice decided!" : "It's decided!"}
         </motion.p>
         <motion.h1
           initial={{ opacity: 0, y: 14 }}
@@ -88,7 +91,6 @@ export default function Decided({ snap, room, isHost }: { snap: Snapshot; room: 
           </div>
         </motion.div>
 
-        <DietReminder people={snap.participants} className="mt-4" />
         <div className="mt-6 space-y-2">
           <a href={directionsUrl(r)} target="_blank" rel="noreferrer" className="block">
             <Button className="w-full">Get directions</Button>
@@ -120,6 +122,7 @@ export default function Decided({ snap, room, isHost }: { snap: Snapshot; room: 
           )}
         </div>
 
+        <DietReminder people={snap.participants} className="mt-4 px-1 text-center" />
         <div className="mt-auto flex items-center justify-center gap-5 pt-8 text-[13px] text-muted">
           {isHost && (
             <button
