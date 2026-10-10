@@ -1,0 +1,283 @@
+// End-to-end multiplayer scenarios against a running server.
+// Usage: BASE=http://localhost:3100 node tests/e2e-api.mjs
+// Run the server with DINNER_ROUND_SECONDS=8 so the timer scenario finishes quickly.
+import assert from "node:assert/strict";
+
+const BASE = process.env.BASE ?? "http://localhost:3100";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let passed = 0;
+
+async function call(path, body) {
+  const res = await fetch(BASE + path, {
+    method: body ? "POST" : "GET",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  return { status: res.status, data };
+}
+const snap = (code, pid) => call(`/api/rooms/${code}${pid ? `?pid=${pid}` : ""}`).then((r) => r.data);
+const act = (code, pid, action, extra = {}) => call(`/api/rooms/${code}`, { action, pid, ...extra });
+
+async function step(name, fn) {
+  try {
+    await fn();
+    passed++;
+    console.log(`  ✓ ${name}`);
+  } catch (e) {
+    console.error(`  ✗ ${name}\n`, e);
+    process.exit(1);
+  }
+}
+
+async function waitFor(fn, timeout = 20000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeout) {
+    const v = await fn();
+    if (v) return v;
+    await sleep(300);
+  }
+  throw new Error("timed out waiting");
+}
+
+async function setupFour() {
+  const host = await call("/api/rooms", { name: "Bez" });
+  assert.equal(host.status, 200);
+  const code = host.data.code;
+  const pids = { Bez: host.data.pid };
+  for (const name of ["Ana", "Cole", "Dev"]) {
+    const r = await act(code, null, "join", { name });
+    assert.equal(r.status, 200);
+    pids[name] = r.data.pid;
+  }
+  return { code, pids };
+}
+
+const FILTERS = {
+  location: { mode: "neighborhood", neighborhood: "Culver City" },
+  radius: 10,
+  cuisines: ["Japanese", "Mexican", "Thai"],
+  budget: [],
+  openNow: false,
+  highlyRated: false,
+  casual: false,
+  dateNight: false,
+  outdoor: false,
+};
+
+console.log(`Dinner Club E2E against ${BASE}`);
+
+await step("unknown room → 404", async () => {
+  const r = await call("/api/rooms/zzzzzz");
+  assert.equal(r.status, 404);
+});
+
+const { code, pids } = await setupFour();
+const everyone = Object.values(pids);
+
+await step("four friends join one room; host sees them all", async () => {
+  const s = await snap(code, pids.Bez);
+  assert.equal(s.participants.length, 4);
+  assert.deepEqual(s.participants.map((p) => p.name), ["Bez", "Ana", "Cole", "Dev"]);
+  assert.equal(s.hostId, pids.Bez);
+  assert.equal(s.state, "lobby");
+});
+
+await step("rejoining with the same id (refresh) doesn't duplicate", async () => {
+  const r = await act(code, pids.Ana, "join", { name: "Ana" });
+  assert.equal(r.data.pid, pids.Ana);
+  assert.equal((await snap(code)).participants.length, 4);
+});
+
+await step("only the host can start", async () => {
+  const r = await act(code, pids.Ana, "vibe");
+  assert.equal(r.status, 403);
+  assert.equal((await act(code, pids.Bez, "vibe")).status, 200);
+  const r2 = await act(code, pids.Cole, "start", { filters: FILTERS });
+  assert.equal(r2.status, 403);
+});
+
+let restaurants;
+await step("host starts round; everyone sees the same restaurants", async () => {
+  const r = await act(code, pids.Bez, "start", { filters: FILTERS });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.state, "swiping");
+  const sets = await Promise.all(everyone.map((p) => snap(code, p)));
+  const ids = sets.map((s) => s.restaurants.map((x) => x.id).sort().join(","));
+  assert.ok(new Set(ids).size === 1, "all identical");
+  restaurants = sets[0].restaurants;
+  assert.ok(restaurants.length >= 6 && restaurants.length <= 12, `deck size ${restaurants.length}`);
+  console.log(`    (${restaurants.length} restaurants, source=${sets[0].dataSource})`);
+});
+
+await step("double-tap start doesn't create a second round", async () => {
+  const r = await act(code, pids.Bez, "start", { filters: FILTERS });
+  assert.equal(r.data.round, 1);
+});
+
+await step("votes are rejected during the 3-2-1 countdown", async () => {
+  const early = await act(code, pids.Bez, "vote", { round: 1, restaurantId: restaurants[0].id, liked: true });
+  assert.equal(early.status, 409);
+  // Wait out the countdown so we vote during the live round.
+  const s = await snap(code, pids.Bez);
+  await sleep(Math.max(0, s.startsAt - s.serverNow) + 100);
+});
+
+const [unanimous, second, third] = restaurants.map((r) => r.id);
+await step("each friend votes independently; votes sync", async () => {
+  // Everyone loves #0. #1 gets 3 yes. #2 gets 3 yes. Dev only votes on the first 3 and doesn't finish.
+  const plan = {
+    Bez: (id) => true,
+    Ana: (id) => id !== third,
+    Cole: (id) => id !== second,
+    Dev: (id) => true,
+  };
+  await Promise.all(
+    Object.entries(pids).map(async ([name, pid]) => {
+      const list = name === "Dev" ? [unanimous, second, third] : restaurants.map((r) => r.id);
+      for (const id of list) {
+        const r = await act(code, pid, "vote", { round: 1, restaurantId: id, liked: plan[name](id) || id === unanimous });
+        assert.equal(r.status, 200, JSON.stringify(r.data));
+      }
+    }),
+  );
+  const s = await snap(code, pids.Ana);
+  const ana = s.participants.find((p) => p.name === "Ana");
+  assert.equal(ana.progress, restaurants.length);
+  assert.equal(s.participants.find((p) => p.name === "Dev").progress, 3);
+});
+
+await step("individual votes are never exposed during the round", async () => {
+  const s = await snap(code, pids.Ana);
+  assert.equal(s.results, null);
+  assert.equal(Object.keys(s.myVotes).length, restaurants.length); // only Ana's own
+  const raw = JSON.stringify(s);
+  assert.ok(!raw.includes('"liked"'), "no vote records in snapshot");
+});
+
+await step("browser refresh restores my votes", async () => {
+  const s = await snap(code, pids.Dev);
+  assert.equal(Object.keys(s.myVotes).length, 3);
+  assert.equal(s.myVotes[unanimous], true);
+});
+
+await step("round waits for an active friend who hasn't finished", async () => {
+  for (const n of ["Bez", "Ana", "Cole"]) await act(code, pids[n], "finish", { round: 1 });
+  await snap(code, pids.Dev); // Dev is still here (heartbeat)
+  const s = await snap(code, pids.Bez);
+  assert.equal(s.state, "swiping");
+  assert.equal(s.participants.filter((p) => p.finished).length, 3);
+});
+
+await step("someone leaves midway → round ends with only submitted votes", async () => {
+  await act(code, pids.Dev, "leave");
+  const s = await waitFor(async () => {
+    const x = await snap(code, pids.Bez);
+    return x.state === "results" ? x : null;
+  });
+  const top = s.results.ranked[0];
+  assert.equal(top.restaurant.id, unanimous);
+  assert.equal(top.yes, 4);
+  assert.equal(top.matchPct, 100);
+  assert.equal(s.results.voters, 4);
+  assert.equal(s.results.hasMajority, true);
+  // #2/#3 each have 3 yes of 4; tie broken by rating then reviews
+  const [a, b] = s.results.ranked.slice(1, 3);
+  assert.equal(a.yes, 3);
+  assert.equal(b.yes, 3);
+  assert.ok((a.restaurant.rating ?? -1) >= (b.restaurant.rating ?? -1));
+  // Dev didn't vote on the 4th restaurant → its votes count is 3, not 4
+  const fourth = s.results.ranked.find((r) => r.restaurant.id === restaurants[3].id);
+  assert.equal(fourth.votes, 3);
+});
+
+await step("late votes after the round are rejected", async () => {
+  const r = await act(code, pids.Ana, "vote", { round: 1, restaurantId: unanimous, liked: false });
+  assert.equal(r.status, 409);
+});
+
+await step("only the host selects; everyone sees the decision", async () => {
+  assert.equal((await act(code, pids.Ana, "select", { restaurantId: unanimous })).status, 403);
+  assert.equal((await act(code, pids.Bez, "select", { restaurantId: unanimous })).status, 200);
+  const s = await snap(code, pids.Cole);
+  assert.equal(s.state, "decided");
+  assert.equal(s.selectedId, unanimous);
+  const outsider = await snap(code); // shareable results link, no participant id
+  assert.equal(outsider.state, "decided");
+  assert.equal(outsider.me, null);
+});
+
+await step("host can reopen and run a fresh round with brand-new restaurants", async () => {
+  await act(code, pids.Bez, "reopen");
+  const r = await act(code, pids.Bez, "rematch");
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.round, 2);
+  const overlap = r.data.restaurants.filter((x) => restaurants.some((y) => y.id === x.id));
+  assert.equal(overlap.length, 0);
+});
+
+await step("timer expiry ends the round; partial voters count", async () => {
+  const s0 = await snap(code, pids.Bez);
+  await sleep(Math.max(0, s0.startsAt - s0.serverNow) + 100);
+  const r2 = s0.restaurants;
+  await act(code, pids.Bez, "vote", { round: 2, restaurantId: r2[0].id, liked: true });
+  await act(code, pids.Ana, "vote", { round: 2, restaurantId: r2[0].id, liked: false });
+  const s = await waitFor(async () => {
+    const x = await snap(code, pids.Bez);
+    return x.state === "results" ? x : null;
+  }, 120_000);
+  assert.ok(s.serverNow >= s.endsAt, "ended by timer");
+  assert.equal(s.results.voters, 2);
+  assert.equal(s.results.ranked[0].yes, 1);
+  assert.equal(s.results.hasMajority, false); // 1 of 2 isn't a majority → suggest another round
+});
+
+await step("late joiner during swiping joins the round", async () => {
+  const h = await call("/api/rooms", { name: "Host" });
+  const c = h.data.code;
+  await act(c, h.data.pid, "vibe");
+  await act(c, h.data.pid, "start", { filters: FILTERS });
+  const j = await act(c, null, "join", { name: "Late" });
+  const s = await snap(c, j.data.pid);
+  assert.equal(s.state, "swiping");
+  assert.ok(s.participants.find((p) => p.name === "Late").inRound);
+});
+
+await step("host leaving hands host role to the next friend", async () => {
+  const h = await call("/api/rooms", { name: "H" });
+  const c = h.data.code;
+  const g = await act(c, null, "join", { name: "G" });
+  await act(c, h.data.pid, "leave");
+  const s = await snap(c, g.data.pid);
+  assert.equal(s.hostId, g.data.pid);
+});
+
+await step("room caps at 8 friends", async () => {
+  const h = await call("/api/rooms", { name: "H" });
+  for (let i = 0; i < 7; i++) assert.equal((await act(h.data.code, null, "join", { name: `F${i}` })).status, 200);
+  const r = await act(h.data.code, null, "join", { name: "Extra" });
+  assert.equal(r.status, 409);
+});
+
+await step("impossible filters → friendly empty state, filters kept", async () => {
+  const h = await call("/api/rooms", { name: "H" });
+  const c = h.data.code;
+  await act(c, h.data.pid, "vibe");
+  // Exhaust the pool by repeated rounds, then expect NO_RESTAURANTS
+  let last;
+  for (let i = 0; i < 12; i++) {
+    last = await act(c, h.data.pid, i === 0 ? "start" : "rematch", i === 0 ? { filters: { ...FILTERS, cuisines: ["Vietnamese"] } } : {});
+    if (last.status !== 200) break;
+    // end the round quickly
+    await act(c, h.data.pid, "finish", { round: last.data.round });
+    const s = await snap(c, h.data.pid);
+    await sleep(Math.max(0, s.startsAt - s.serverNow) + 50);
+    await act(c, h.data.pid, "vote", { round: s.round, restaurantId: s.restaurants[0].id, liked: true });
+    await act(c, h.data.pid, "finish", { round: s.round });
+    await waitFor(async () => (await snap(c, h.data.pid)).state === "results");
+  }
+  assert.equal(last.status, 422);
+  assert.equal(last.data.code, "NO_RESTAURANTS");
+});
+
+console.log(`\n${passed} scenarios passed.`);
