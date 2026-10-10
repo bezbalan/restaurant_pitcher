@@ -1,6 +1,7 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import type { Restaurant } from "@/lib/types";
+import { dietChipText, dietLabel } from "@/lib/diets";
+import type { PublicParticipant, Restaurant } from "@/lib/types";
 import { Button, MetaRow, cx } from "./ui";
 
 export function hoursChip(r: Restaurant): { text: string; warn: boolean } | null {
@@ -29,6 +30,32 @@ export function TagRow({ tags, max, light, oneLine }: { tags?: string[]; max?: n
           {t}
         </span>
       ))}
+    </div>
+  );
+}
+
+/** Green chips for the group's dietary needs this place seems to fit. */
+export function DietRow({ r, oneLine }: { r: Restaurant; oneLine?: boolean }) {
+  if (!r.dietMatches?.length) return null;
+  return (
+    <div className={cx("flex gap-1.5", oneLine ? "flex-nowrap overflow-hidden whitespace-nowrap" : "flex-wrap")}>
+      {r.dietMatches.map((m) => (
+        <span key={m.key} className="rounded-full bg-olive/12 px-2.5 py-0.5 text-[12px] font-medium text-olive">
+          {dietChipText(m)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** "Heads up" note so nobody's needs get forgotten when the group picks a place. */
+export function DietReminder({ people, className }: { people: PublicParticipant[]; className?: string }) {
+  const withNeeds = people.filter((p) => p.diet.length);
+  if (!withNeeds.length) return null;
+  return (
+    <div className={cx("rounded-2xl border border-olive/30 bg-olive/8 px-4 py-3 text-[14px] text-ink-2", className)}>
+      <span className="text-olive">🌱 Heads up:</span> {withNeeds.map((p) => `${p.name}: ${p.diet.map(dietLabel).join(", ")}`).join(" · ")}
+      <span className="mt-0.5 block text-[12px] text-muted">Diet badges come from Google listings and reviews. Check the menu or call ahead to be sure.</span>
     </div>
   );
 }
@@ -106,6 +133,13 @@ export function DetailsSheet({ r, onClose, been }: { r: Restaurant | null; onClo
               <Section title="What it's like">
                 <p className="text-[15px] leading-relaxed text-ink-2">{r.aiSummary ?? r.description}</p>
                 {r.aiSummary && <p className="mt-1 text-[11px] text-muted">Summarized with Gemini · Google Maps</p>}
+              </Section>
+            )}
+
+            {r.dietMatches && r.dietMatches.length > 0 && (
+              <Section title="Dietary">
+                <DietRow r={r} />
+                <p className="mt-1.5 text-[12px] text-muted">From Google&apos;s listing{r.dietMatches.some((m) => m.strength === "mentioned") ? " and reviews" : ""}. Double-check the menu.</p>
               </Section>
             )}
 

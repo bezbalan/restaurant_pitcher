@@ -107,7 +107,7 @@ export default function Home() {
           transition={{ delay: 0.3 }}
           className="mx-auto mt-4 max-w-[300px] text-center text-[16px] leading-relaxed text-ink-2"
         >
-          Four friends. One link. Sixty seconds of swiping. One place everyone agrees on.
+          Four friends. One link. A minute of swiping. One place everyone agrees on.
         </motion.p>
       </section>
 

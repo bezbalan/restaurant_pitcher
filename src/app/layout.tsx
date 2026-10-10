@@ -12,12 +12,12 @@ const fraunces = Fraunces({
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Bite Club — decide where to eat in 60 seconds",
-  description: "Four friends. One link. Sixty seconds of swiping. One restaurant everyone agrees on.",
+  title: "Bite Club — decide where to eat in about a minute",
+  description: "Four friends. One link. A minute of swiping. One restaurant everyone agrees on.",
   appleWebApp: { capable: true, title: "Bite Club", statusBarStyle: "default" },
   openGraph: {
     title: "Bite Club",
-    description: "You're invited to pick where we eat. Sixty seconds of swiping — one restaurant everyone agrees on.",
+    description: "You're invited to pick where we eat. A minute of swiping — one restaurant everyone agrees on.",
     type: "website",
   },
 };

@@ -9,6 +9,7 @@ import {
   joinRoom,
   leaveRoom,
   markBeen,
+  setDiet,
   shareLocation,
   openVibe,
   reopenResults,
@@ -53,6 +54,9 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/rooms/[code
         break;
       case "undo":
         await undoVote(code, pid, body);
+        break;
+      case "diet":
+        await setDiet(code, pid, body);
         break;
       case "location":
         await shareLocation(code, pid, body);

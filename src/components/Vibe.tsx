@@ -2,16 +2,18 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { ClientError, haptic } from "@/lib/client";
+import { ROUND_SECONDS } from "@/lib/logic";
 import { NEIGHBORHOODS } from "@/lib/neighborhoods";
 import type { Cuisine, Filters, Radius, Snapshot } from "@/lib/types";
 import type { useRoom } from "@/lib/useRoom";
-import { PeopleList, ShareLocation, WaitingDots } from "./Lobby";
+import { DietPicker, PeopleList, ShareLocation, WaitingDots } from "./Lobby";
+import { dietLabel } from "@/lib/diets";
 import { RoomHeader } from "./RoomClient";
 import { Button, Chip, Screen, Segmented, Toggle, cx } from "./ui";
 
 type Room = ReturnType<typeof useRoom>;
 
-const CUISINES: Cuisine[] = ["Breakfast", "Brunch", "Japanese", "Korean", "Thai", "Italian", "Mexican", "Indian", "American", "Mediterranean", "Chinese", "Vietnamese", "Dessert", "Coffee"];
+const CUISINES: Cuisine[] = ["Vegan", "Breakfast", "Brunch", "Japanese", "Korean", "Thai", "Italian", "Mexican", "Indian", "American", "Mediterranean", "Chinese", "Vietnamese", "Dessert", "Coffee"];
 const BUDGETS = [
   { level: 1, sign: "$", label: "Under $20" },
   { level: 2, sign: "$$", label: "$20–40" },
@@ -60,7 +62,7 @@ function VibeWaiting({ snap, room }: { snap: Snapshot; room: Room }) {
         </h1>
         <div className="mt-6 space-y-3 rounded-[24px] bg-paper p-5 text-[15px] leading-relaxed text-ink-2 shadow-[var(--shadow-soft)]">
           <p>
-            <span className="font-medium text-ink">60 seconds.</span> Everyone sees the same 10–12 restaurants.
+            <span className="font-medium text-ink">{ROUND_SECONDS} seconds.</span> Everyone sees the same 10–12 restaurants.
           </p>
           <p>
             <span className="text-tomato">♥ Swipe right</span> on places you&apos;d happily go.{" "}
@@ -71,6 +73,9 @@ function VibeWaiting({ snap, room }: { snap: Snapshot; room: Room }) {
         <h2 className="mt-8 mb-3 text-[13px] font-medium tracking-[0.14em] text-muted uppercase">At the table</h2>
         <PeopleList snap={snap} slots={0} />
         <div className="mt-4">
+          <DietPicker snap={snap} room={room} />
+        </div>
+        <div className="mt-3">
           <ShareLocation snap={snap} room={room} />
         </div>
       </div>
@@ -116,6 +121,7 @@ function VibeHost({ snap, room }: { snap: Snapshot; room: Room }) {
   }
 
   const sharedCount = snap.participants.filter((p) => p.sharedLocation).length;
+  const tableNeeds = snap.participants.filter((p) => p.diet.length).map((p) => `${p.diet.map(dietLabel).join(", ")} (${p.name})`);
   const locationReady =
     (f.location.mode === "middle" && sharedCount >= 2) ||
     (f.location.mode === "neighborhood" && !!f.location.neighborhood) ||
@@ -242,14 +248,20 @@ function VibeHost({ snap, room }: { snap: Snapshot; room: Room }) {
           </div>
         </Section>
 
+        {tableNeeds.length > 0 && (
+          <div className="mt-6 rounded-2xl border border-olive/30 bg-olive/8 px-4 py-3 text-[14px] text-ink-2">
+            <span className="text-olive">🌱 Table needs:</span> {tableNeeds.join(" · ")}
+            <span className="block text-[12px] text-muted">We&apos;ll favor places that fit and flag the rest.</span>
+          </div>
+        )}
         <Section
           title="Craving"
           aside={<span className="text-[13px] text-muted">{f.cuisines.length ? `${f.cuisines.length} picked` : "Anything goes"}</span>}
         >
           <div className="flex flex-wrap gap-2">
             {CUISINES.map((c) => (
-              <Chip key={c} active={f.cuisines.includes(c)} onClick={() => toggleCuisine(c)}>
-                {c}
+              <Chip key={c} accent={c === "Vegan"} active={f.cuisines.includes(c)} onClick={() => toggleCuisine(c)}>
+                {c === "Vegan" ? "🌱 Vegan" : c}
               </Chip>
             ))}
             <Chip active={f.cuisines.length === 0} onClick={() => (haptic(), set("cuisines", []))}>
@@ -304,7 +316,7 @@ function VibeHost({ snap, room }: { snap: Snapshot; room: Room }) {
         <div className="mx-auto max-w-[480px] px-5">
           {error && <p className="mb-3 rounded-2xl bg-tomato-soft px-4 py-3 text-center text-[14px] text-tomato-deep">{error}</p>}
           <Button className="w-full" onClick={start} loading={busy} disabled={!locationReady}>
-            Start the 60 seconds
+            Start swiping
           </Button>
           <p className="mt-2 text-center text-[13px] text-muted">
             {busy ? `Finding great spots near ${placeLabel}…` : `Everyone gets the same 10–12 spots near ${placeLabel}.`}

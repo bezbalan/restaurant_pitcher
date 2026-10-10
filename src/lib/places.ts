@@ -3,6 +3,7 @@ import "server-only";
 import { DEMO_RESTAURANTS } from "./demoData.ts";
 import { DECK_MAX, DECK_MIN, diversify, haversineMi } from "./logic.ts";
 import { LA_CENTER, NEIGHBORHOODS, findNeighborhood } from "./neighborhoods.ts";
+import { DIETS, dietQueryTerms, type DietMatch } from "./diets.ts";
 import type { Cuisine, Filters, Restaurant } from "./types.ts";
 
 // Overridable only so automated tests can point at a fake Google server.
@@ -91,8 +92,8 @@ export async function buildShortlist(filters: Filters, excludeIds: string[]): Pr
   const { origin, notice: originNotice } = await resolveOrigin(filters);
   if (placesConfigured()) {
     try {
-      const restaurants = await googleShortlist(filters, origin, new Set(excludeIds));
-      return { restaurants, source: "google", notice: originNotice, origin };
+      const g = await googleShortlist(filters, origin, new Set(excludeIds));
+      return { restaurants: g.restaurants, source: "google", notice: [originNotice, g.notice].filter(Boolean).join(" ") || null, origin };
     } catch (e) {
       console.error("Google Places failed, falling back to demo data:", e);
       const demo = demoShortlist(filters, origin, new Set(excludeIds));
@@ -194,7 +195,15 @@ function demoShortlist(filters: Filters, origin: Origin, exclude: Set<string>): 
     : !attempts[used].useRadius && filters.radius != null
       ? `Slim pickings within ${filters.radius} mi, so we looked a little further.`
       : null;
-  pool.sort((x, y) => (x.distanceMi ?? 0) - (y.distanceMi ?? 0));
+  const needs = groupNeeds(filters);
+  for (const rest of pool) {
+    const d = byId.get(rest.id)!;
+    const m: DietMatch[] = [];
+    if ((needs.includes("vegan") || needs.includes("vegetarian")) && d.cuisine === "Vegan") m.push({ key: "vegan", strength: "listed" });
+    else if (needs.includes("vegetarian") && /vegetarian/i.test(d.label)) m.push({ key: "vegetarian", strength: "listed" });
+    if (m.length) rest.dietMatches = m;
+  }
+  pool.sort((x, y) => Number(!!y.dietMatches) - Number(!!x.dietMatches) || (x.distanceMi ?? 0) - (y.distanceMi ?? 0));
   const groupOf = (x: Restaurant) => byId.get(x.id)!.cuisine;
   return { restaurants: diversify(pool, DECK_MAX, groupOf), relaxed };
 }
@@ -234,6 +243,7 @@ const FIELD_MASK = [
   "places.outdoorSeating",
   "places.goodForGroups",
   "places.businessStatus",
+  "places.types",
 ].join(",");
 
 // Richer details. If Google ever rejects one of these fields, we fall back to FIELD_MASK.
@@ -259,6 +269,7 @@ let richFieldsOk = true;
 
 /** Search phrases for meal-type cravings (everything else becomes "<Cuisine> restaurants"). */
 const QUERY_FOR: Partial<Record<Cuisine, string>> = {
+  Vegan: "vegan restaurants",
   Breakfast: "breakfast spots",
   Brunch: "brunch spots",
   Dessert: "dessert shops",
@@ -308,6 +319,7 @@ interface GPlace {
   outdoorSeating?: boolean;
   goodForGroups?: boolean;
   businessStatus?: string;
+  types?: string[];
 }
 
 async function searchText(body: Record<string, unknown>): Promise<GPlace[]> {
@@ -341,7 +353,13 @@ async function searchText(body: Record<string, unknown>): Promise<GPlace[]> {
   return data.places ?? [];
 }
 
-async function googleShortlist(filters: Filters, origin: Origin, exclude: Set<string>): Promise<Restaurant[]> {
+async function googleShortlist(
+  filters: Filters,
+  origin: Origin,
+  exclude: Set<string>,
+): Promise<{ restaurants: Restaurant[]; notice: string | null }> {
+  const needs = groupNeeds(filters);
+  const dietTerms = dietQueryTerms(needs);
   const radiusMi = filters.radius ?? 25;
   const radiusM = Math.min(50000, Math.round(radiusMi * 1609.34));
   const vibe = [filters.casual && "casual", filters.dateNight && "romantic date night", filters.outdoor && "outdoor seating"]
@@ -350,8 +368,14 @@ async function googleShortlist(filters: Filters, origin: Origin, exclude: Set<st
   const cuisines: (Cuisine | null)[] = filters.cuisines.length ? filters.cuisines.slice(0, 5) : [null];
   const perQuery = cuisines.length === 1 ? 20 : Math.max(8, Math.ceil(30 / cuisines.length));
 
-  const base = (cuisine: Cuisine | null, withPrice: boolean) => ({
-    textQuery: `${vibe ? vibe + " " : ""}${cuisine ? QUERY_FOR[cuisine] ?? `${cuisine} restaurants` : "restaurants"}`,
+  const base = (cuisine: Cuisine | null, withPrice: boolean, withDiet = true) => ({
+    textQuery: [
+      ...(withDiet ? dietTerms.filter((t) => !(cuisine === "Vegan" && t.startsWith("vegan"))) : []),
+      vibe,
+      cuisine ? QUERY_FOR[cuisine] ?? `${cuisine} restaurants` : "restaurants",
+    ]
+      .filter(Boolean)
+      .join(" "),
     // Coffee shops and dessert spots usually aren't typed "restaurant" on Google.
     ...(cuisine === "Coffee" || cuisine === "Dessert" ? {} : { includedType: "restaurant" }),
     pageSize: Math.min(20, perQuery),
@@ -361,8 +385,10 @@ async function googleShortlist(filters: Filters, origin: Origin, exclude: Set<st
     ...(withPrice && filters.budget.length ? { priceLevels: filters.budget.map((b) => PRICE_ENUM[b]) } : {}),
   });
 
-  const run = async (withPrice: boolean) => {
-    const settled = await Promise.allSettled(cuisines.map((c) => searchText(base(c, withPrice)).then((ps) => ps.map((p) => ({ p, c })))));
+  const run = async (withPrice: boolean, withDiet = true) => {
+    const settled = await Promise.allSettled(
+      cuisines.map((c) => searchText(base(c, withPrice, withDiet)).then((ps) => ps.map((p) => ({ p, c })))),
+    );
     const ok = settled.filter((s): s is PromiseFulfilledResult<{ p: GPlace; c: Cuisine | null }[]> => s.status === "fulfilled");
     if (ok.length === 0) throw (settled[0] as PromiseRejectedResult).reason;
     return ok.flatMap((s) => s.value);
@@ -378,29 +404,72 @@ async function googleShortlist(filters: Filters, origin: Origin, exclude: Set<st
 
   const seen = new Set<string>();
   const candidates: { r: Restaurant; group: string; score: number }[] = [];
-  for (const { p, c } of hits) {
+  const consider = (list: typeof hits) => {
+  for (const { p, c } of list) {
     if (!p.id || seen.has(p.id) || exclude.has(p.id) || !p.location || !p.displayName?.text) continue;
     if (p.businessStatus && p.businessStatus !== "OPERATIONAL") continue;
     seen.add(p.id);
-    const r = toRestaurant(p, c, origin);
+    const r = toRestaurant(p, c, origin, c === "Vegan" ? [...new Set([...needs, "vegan"])] : needs);
     if (filters.radius != null && r.distanceMi != null && r.distanceMi > filters.radius * 1.15) continue;
     if (filters.outdoor && p.outdoorSeating === false) continue;
     // "Open now" means open for a while yet — skip places about to close.
     if (filters.openNow && r.minutesToClose != null && r.minutesToClose < MIN_OPEN_MINUTES) continue;
     const reviews = r.reviewCount ?? 0;
-    const score = (r.rating ?? 3.6) + Math.min(Math.log10(reviews + 1), 4) * 0.2 - (r.distanceMi ?? 0) * 0.04;
+    const dietBoost = (r.dietMatches ?? []).reduce((s, m) => s + (m.strength === "listed" ? 0.4 : 0.2), 0);
+    const score = (r.rating ?? 3.6) + Math.min(Math.log10(reviews + 1), 4) * 0.2 - (r.distanceMi ?? 0) * 0.04 + dietBoost;
     candidates.push({ r, group: c ?? r.cuisine, score });
   }
+  };
+  consider(hits);
+
+  // Dietary search terms can narrow things a lot. If we're short, widen the search and say so.
+  let notice: string | null = null;
+  if (dietTerms.length && candidates.length < DECK_MIN) {
+    const wider = await run(true, false).catch(() => []);
+    const before = candidates.length;
+    consider(wider);
+    if (candidates.length > before) notice = "Only a few spots matched everyone's dietary needs, so we added more. Look for the 🌱 / diet badges.";
+  }
+
   candidates.sort((a, b) => b.score - a.score);
   const groups = new Map(candidates.map((x) => [x.r.id, x.group]));
-  return diversify(
-    candidates.map((x) => x.r),
-    DECK_MAX,
-    (x) => groups.get(x.id) ?? x.cuisine,
-  );
+  return {
+    restaurants: diversify(
+      candidates.map((x) => x.r),
+      DECK_MAX,
+      (x) => groups.get(x.id) ?? x.cuisine,
+    ),
+    notice,
+  };
 }
 
-function toRestaurant(p: GPlace, queried: Cuisine | null, origin: Origin): Restaurant {
+function groupNeeds(filters: Filters): string[] {
+  const needs = new Set(filters.dietNeeds ?? []);
+  if (filters.cuisines.includes("Vegan")) needs.add("vegan");
+  return [...needs];
+}
+
+/** Which of the group's needs a place seems to cater to — "listed" by Google, or only "mentioned" in reviews. */
+function dietMatchesFor(p: GPlace, needs: string[]): DietMatch[] | undefined {
+  if (!needs.length) return undefined;
+  const types = p.types ?? [];
+  const listedText = [p.displayName?.text, p.editorialSummary?.text, p.generativeSummary?.overview?.text, p.primaryTypeDisplayName?.text]
+    .filter(Boolean)
+    .join(" ");
+  const reviewText = (p.reviews ?? []).map((r) => r.text?.text ?? "").join(" ");
+  const out: DietMatch[] = [];
+  for (const d of DIETS) {
+    if (!needs.includes(d.key) || !d.match) continue;
+    const typeListed =
+      (d.key === "vegan" && types.includes("vegan_restaurant")) ||
+      (d.key === "vegetarian" && (types.includes("vegetarian_restaurant") || types.includes("vegan_restaurant") || p.servesVegetarianFood === true));
+    if (typeListed || d.match.test(listedText)) out.push({ key: d.key, strength: "listed" });
+    else if (d.match.test(reviewText)) out.push({ key: d.key, strength: "mentioned" });
+  }
+  return out.length ? out : undefined;
+}
+
+function toRestaurant(p: GPlace, queried: Cuisine | null, origin: Origin, needs: string[] = []): Restaurant {
   const lat = p.location!.latitude;
   const lng = p.location!.longitude;
   const comp = (type: string) => p.addressComponents?.find((a) => a.types.includes(type))?.longText;
@@ -456,6 +525,7 @@ function toRestaurant(p: GPlace, queried: Cuisine | null, origin: Origin): Resta
     review: pickReview(p),
     phone: p.nationalPhoneNumber ?? null,
     reservable: p.reservable ?? null,
+    dietMatches: dietMatchesFor(p, needs),
   };
 }
 

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { directionsUrl, haptic, momentWord, shareLink } from "@/lib/client";
 import type { Snapshot } from "@/lib/types";
 import type { useRoom } from "@/lib/useRoom";
-import { TagRow, hoursChip } from "./Details";
+import { DietReminder, DietRow, TagRow, hoursChip } from "./Details";
 import { RoomHeader } from "./RoomClient";
 import { Button, MetaRow, RestaurantImage, Screen } from "./ui";
 
@@ -67,6 +67,11 @@ export default function Decided({ snap, room, isHost }: { snap: Snapshot; room: 
                 Call {r.phone}
               </a>
             )}
+            {r.dietMatches && r.dietMatches.length > 0 && (
+              <div className="mt-3">
+                <DietRow r={r} />
+              </div>
+            )}
             {r.tags && r.tags.length > 0 && (
               <div className="mt-3">
                 <TagRow tags={r.tags} max={4} />
@@ -83,6 +88,7 @@ export default function Decided({ snap, room, isHost }: { snap: Snapshot; room: 
           </div>
         </motion.div>
 
+        <DietReminder people={snap.participants} className="mt-4" />
         <div className="mt-6 space-y-2">
           <a href={directionsUrl(r)} target="_blank" rel="noreferrer" className="block">
             <Button className="w-full">Get directions</Button>

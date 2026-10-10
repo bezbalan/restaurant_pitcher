@@ -354,6 +354,25 @@ await step("meet in the middle: needs 2 sharers, searches around their midpoint,
   assert.ok(Math.abs(loc.lat - 34.0532) < 0.01 && Math.abs(loc.lng - -118.3807) < 0.01, `midpoint ${loc.lat},${loc.lng}`);
 });
 
+await step("dietary needs: each friend sets their own; shown to the table; invalid keys ignored", async () => {
+  const h = await call("/api/rooms", { name: "Dee" });
+  const c = h.data.code;
+  const g = await act(c, null, "join", { name: "Pat" });
+  assert.equal((await act(c, g.data.pid, "diet", { needs: ["vegan", "no_pork", "bogus"] })).status, 200);
+  let s = await snap(c, h.data.pid);
+  assert.deepEqual(s.participants.find((p) => p.name === "Pat").diet.sort(), ["no_pork", "vegan"]);
+  await act(c, g.data.pid, "diet", { needs: ["vegan"] });
+  s = await snap(c, h.data.pid);
+  assert.deepEqual(s.participants.find((p) => p.name === "Pat").diet, ["vegan"]);
+  await act(c, h.data.pid, "vibe");
+  const r = await act(c, h.data.pid, "start", { filters: { ...FILTERS, cuisines: ["Vegan"] } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.deepEqual(r.data.filters.dietNeeds, ["vegan"]);
+  if (r.data.dataSource === "demo") {
+    assert.ok(r.data.restaurants.some((x) => x.dietMatches?.some((m) => m.key === "vegan")), "vegan spots flagged");
+  }
+});
+
 if (process.env.EXPECT_GOOGLE) {
   await step("Google details: photos, hours, tags, summary, review; closing-soon places dropped", async () => {
     const h = await call("/api/rooms", { name: "G" });
@@ -374,6 +393,20 @@ if (process.env.EXPECT_GOOGLE) {
     assert.ok(x.phone);
     const photo = await fetch(BASE + x.photos[1].url, { redirect: "manual" });
     assert.equal(photo.status, 302);
+  });
+
+  await step("Google + diets: search adds 'vegan-friendly'; listed vs review-mentioned badges", async () => {
+    const h = await call("/api/rooms", { name: "V" });
+    const c = h.data.code;
+    await act(c, h.data.pid, "diet", { needs: ["vegan"] });
+    await act(c, h.data.pid, "vibe");
+    const r = await act(c, h.data.pid, "start", { filters: { ...FILTERS, cuisines: ["Thai"] } });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    const calls = await (await fetch("http://localhost:3005/calls")).json();
+    assert.ok(calls.queries.some((q) => q.startsWith("vegan-friendly")), JSON.stringify(calls.queries.slice(-3)));
+    const by = Object.fromEntries(r.data.restaurants.map((x) => [x.id, x]));
+    assert.equal(by.fake_2?.dietMatches?.[0]?.strength, "listed");
+    assert.equal(by.fake_4?.dietMatches?.[0]?.strength, "mentioned");
   });
 }
 

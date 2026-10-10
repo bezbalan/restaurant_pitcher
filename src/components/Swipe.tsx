@@ -5,7 +5,7 @@ import { api, getBeenSet, haptic, setBeen } from "@/lib/client";
 import { shuffledFor } from "@/lib/logic";
 import type { Restaurant, Snapshot } from "@/lib/types";
 import { useNow, type useRoom } from "@/lib/useRoom";
-import { DetailsSheet, TagRow, hoursChip } from "./Details";
+import { DetailsSheet, DietRow, TagRow, hoursChip } from "./Details";
 import { RoomHeader } from "./RoomClient";
 import { AvatarStack, MetaRow, RestaurantImage, Screen, Spinner, cx } from "./ui";
 
@@ -227,7 +227,7 @@ export default function Swipe({ snap, room }: { snap: Snapshot; room: Room }) {
                 />
               ))}
         </AnimatePresence>
-        <AnimatePresence>{phase === "countdown" && <Countdown n={countdown} total={total} />}</AnimatePresence>
+        <AnimatePresence>{phase === "countdown" && <Countdown n={countdown} total={total} seconds={Math.round((endsAt - startsAt) / 1000)} />}</AnimatePresence>
       </div>
 
       {/* Actions */}
@@ -284,7 +284,7 @@ function Timer({ phase, secsLeft }: { phase: string; secsLeft: number }) {
   );
 }
 
-function Countdown({ n, total }: { n: number; total: number }) {
+function Countdown({ n, total, seconds }: { n: number; total: number; seconds: number }) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -306,7 +306,7 @@ function Countdown({ n, total }: { n: number; total: number }) {
         </motion.span>
       </AnimatePresence>
       <p className="max-w-[260px] text-center text-[15px] text-ink-2">
-        {total} spots. 60 seconds. <span className="text-tomato">♥</span> the ones you&apos;d happily go to.
+        {total} spots. {seconds} seconds. <span className="text-tomato">♥</span> the ones you&apos;d happily go to.
         <span className="mt-2 block text-[13px] text-muted">
           You each get one <span className="text-tomato">★ super-like</span> (counts double) and one ⊘ veto (a hard no).
         </span>
@@ -598,7 +598,7 @@ function SwipeCard({
         <div className="flex shrink-0 flex-col gap-2 px-5 pt-3.5 pb-4">
           <MetaRow r={r} />
           {blurb && <p className="line-clamp-2 text-[14px] leading-snug text-ink-2">{blurb}</p>}
-          <TagRow tags={r.tags} max={2} oneLine />
+          {r.dietMatches?.length ? <DietRow r={r} oneLine /> : <TagRow tags={r.tags} max={2} oneLine />}
           {r.source === "google" && <p className="text-[10px] text-muted/80">Info &amp; photos from Google</p>}
         </div>
       </article>

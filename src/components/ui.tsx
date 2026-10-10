@@ -62,11 +62,16 @@ export function Chip({
   onClick,
   children,
   className,
+  accent,
+  small,
 }: {
   active: boolean;
   onClick: () => void;
   children: ReactNode;
   className?: string;
+  /** Green "dietary" styling, used to highlight Vegan */
+  accent?: boolean;
+  small?: boolean;
 }) {
   return (
     <motion.button
@@ -75,8 +80,15 @@ export function Chip({
       onClick={onClick}
       aria-pressed={active}
       className={cx(
-        "h-10 shrink-0 rounded-full border px-4 text-[15px] transition-colors duration-150",
-        active ? "border-ink bg-ink text-ivory" : "border-line bg-paper text-ink-2 hover:border-ink-2/40",
+        "shrink-0 rounded-full border transition-colors duration-150",
+        small ? "h-8 px-3 text-[13px]" : "h-10 px-4 text-[15px]",
+        accent
+          ? active
+            ? "border-olive bg-olive text-white"
+            : "border-olive/50 bg-olive/8 text-olive hover:border-olive"
+          : active
+            ? "border-ink bg-ink text-ivory"
+            : "border-line bg-paper text-ink-2 hover:border-ink-2/40",
         className,
       )}
     >

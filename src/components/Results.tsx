@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ClientError, haptic } from "@/lib/client";
 import type { RankedResult, Snapshot } from "@/lib/types";
 import type { useRoom } from "@/lib/useRoom";
-import { DetailsSheet, TagRow, hoursChip } from "./Details";
+import { DetailsSheet, DietReminder, DietRow, TagRow, hoursChip } from "./Details";
 import { RoomHeader } from "./RoomClient";
 import { Button, MetaRow, RestaurantImage, Screen, cx } from "./ui";
 
@@ -85,6 +85,7 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
         </motion.h1>
         <p className="mt-2 text-[15px] text-ink-2">{sub}</p>
 
+        <DietReminder people={snap.participants} className="mt-5" />
         <div className="mt-6 space-y-4">
           {top.map((r, i) => (
             <ResultCard
@@ -109,7 +110,7 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
         {(!celebrate || noLikes || noVotes) && (
           <div className="mt-6 rounded-[24px] bg-ink p-5 text-ivory">
             <p className="font-display text-[22px] leading-snug">Run a quick second round?</p>
-            <p className="mt-1 text-[14px] text-ivory/65">Same vibe, all-new restaurants, another 60 seconds.</p>
+            <p className="mt-1 text-[14px] text-ivory/65">Same vibe, all-new restaurants, another quick round.</p>
             {isHost ? (
               <div className="mt-4 flex gap-2">
                 <Button size="md" className="flex-1" loading={busy === "rematch"} onClick={() => run("rematch")}>
@@ -128,19 +129,29 @@ export default function Results({ snap, room, isHost }: { snap: Snapshot; room: 
         {rest.length > 0 && !noVotes && (
           <div className="mt-6">
             <button onClick={() => setShowAll((s) => !s)} className="text-[14px] text-ink-2 underline underline-offset-4">
-              {showAll ? "Hide the rest" : `See all ${results.ranked.length} results`}
+              {showAll ? "Hide the rest" : `See the other ${rest.length} spots`}
             </button>
             {showAll && (
               <ul className="mt-3 divide-y divide-line rounded-2xl bg-paper px-4 shadow-[var(--shadow-soft)]">
                 {rest.map((r) => (
-                  <li key={r.restaurant.id} className="flex items-center justify-between gap-3 py-3 text-[14px]">
-                    <span className="truncate text-ink">
-                      <span className="mr-2 text-muted tabular-nums">#{r.rank}</span>
-                      {r.restaurant.name}
-                    </span>
-                    <span className="shrink-0 text-muted">
-                      {r.vetoed ? "⊘ Vetoed · " : ""}♥ {r.yes} of {r.votes} {r.votes === 1 ? "vote" : "votes"}
-                    </span>
+                  <li key={r.restaurant.id}>
+                    <button
+                      onClick={() => setDetails(r.restaurant)}
+                      className="flex w-full items-center gap-3 py-3 text-left text-[14px]"
+                      aria-label={`More about ${r.restaurant.name}`}
+                    >
+                      <span className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-sand">
+                        <RestaurantImage r={r.restaurant} compact src={r.restaurant.photos?.[0]?.url} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[15px] text-ink">{r.restaurant.name}</span>
+                        <span className="block truncate text-[12px] text-muted">
+                          {r.vetoed ? "⊘ Vetoed · " : ""}♥ {r.yes} of {r.votes} · {r.restaurant.cuisine}
+                          {r.restaurant.rating != null && ` · ★ ${r.restaurant.rating.toFixed(1)}`}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-[18px] text-muted">›</span>
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -238,6 +249,11 @@ function ResultCard({
         <MetaRow r={rest} className="mt-1.5" />
         {hoursChip(rest) && (
           <p className={cx("mt-1 text-[13px]", hoursChip(rest)!.warn ? "text-tomato-deep" : "text-ink-2")}>{hoursChip(rest)!.text}</p>
+        )}
+        {rest.dietMatches && rest.dietMatches.length > 0 && (
+          <div className="mt-2">
+            <DietRow r={rest} />
+          </div>
         )}
         {big && rest.tags && rest.tags.length > 0 && (
           <div className="mt-2">

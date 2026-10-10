@@ -15,6 +15,7 @@ import {
   resolveHost,
   shouldEndRound,
 } from "./logic.ts";
+import { DIET_KEYS } from "./diets.ts";
 import { buildShortlist } from "./places.ts";
 import { getStore, storeIsEphemeral } from "./store.ts";
 import type { Cuisine, Filters, Participant, Room, Snapshot } from "./types.ts";
@@ -35,7 +36,7 @@ function roundSeconds() {
   return Number.isFinite(n) && n >= 5 && n <= 300 ? n : ROUND_SECONDS;
 }
 
-const CUISINES: Cuisine[] = ["Breakfast", "Brunch", "Japanese", "Korean", "Thai", "Italian", "Mexican", "Indian", "American", "Mediterranean", "Chinese", "Vietnamese", "Dessert", "Coffee"];
+const CUISINES: Cuisine[] = ["Vegan", "Breakfast", "Brunch", "Japanese", "Korean", "Thai", "Italian", "Mexican", "Indian", "American", "Mediterranean", "Chinese", "Vietnamese", "Dessert", "Coffee"];
 
 export function cleanName(raw: unknown): string {
   const name = String(raw ?? "")
@@ -187,6 +188,11 @@ export async function startRound(code: string, pid: unknown, rawFilters?: unknow
     filters.location = { mode: "middle", lat: mid.lat, lng: mid.lng };
   }
 
+  // Everyone's dietary needs shape the search (recomputed each round so late changes count).
+  const [diets, people] = await Promise.all([dietsByParticipant(code), getStore().listParticipants(code)]);
+  const here = new Set(people.filter((p) => !p.left).map((p) => p.id));
+  filters.dietNeeds = [...new Set([...diets].filter(([id]) => here.has(id)).flatMap(([, d]) => d))];
+
   const shortlist = await buildShortlist(filters, room.seenIds);
   if (shortlist.restaurants.length === 0) {
     // Persist filters so the host doesn't lose their choices.
@@ -324,6 +330,33 @@ export async function shareLocation(code: string, pid: unknown, body: { lat?: un
   });
 }
 
+/** Dietary needs per friend: rows in round -2 with restaurant_id "diet:<key>". */
+const DIET_ROUND = -2;
+async function dietsByParticipant(code: string): Promise<Map<string, string[]>> {
+  const rows = await getStore().listVotes(code, DIET_ROUND);
+  const out = new Map<string, string[]>();
+  for (const v of rows) {
+    if (!v.restaurantId.startsWith("diet:")) continue;
+    const list = out.get(v.participantId) ?? [];
+    list.push(v.restaurantId.slice(5));
+    out.set(v.participantId, list);
+  }
+  return out;
+}
+
+export async function setDiet(code: string, pid: unknown, body: { needs?: unknown }) {
+  await loadRoom(code);
+  const me = await requireParticipant(code, pid);
+  const wanted = new Set(Array.isArray(body.needs) ? body.needs.filter((n): n is string => DIET_KEYS.includes(n as never)) : []);
+  const store = getStore();
+  const current = (await store.listVotes(code, DIET_ROUND)).filter((v) => v.participantId === me.id);
+  for (const v of current) if (!wanted.has(v.restaurantId.slice(5))) await store.deleteVote(code, DIET_ROUND, me.id, v.restaurantId);
+  const have = new Set(current.map((v) => v.restaurantId.slice(5)));
+  for (const n of wanted) {
+    if (!have.has(n)) await store.upsertVote({ roomCode: code, round: DIET_ROUND, participantId: me.id, restaurantId: `diet:${n}`, liked: true, createdAt: Date.now() });
+  }
+}
+
 export async function finishSwiping(code: string, pid: unknown, round: unknown) {
   const room = await loadRoom(code);
   const me = await requireParticipant(code, pid);
@@ -392,6 +425,7 @@ export async function getSnapshot(code: string, pid: string | null): Promise<Sna
     }
   }
   const located = room.state === "lobby" || room.state === "vibe" ? await sharedLocations(code) : new Map();
+  const diets = await dietsByParticipant(code);
 
   const beenVotes = inPlay ? await store.listVotes(code, BEEN_ROUND) : [];
   const myBeen = me ? beenVotes.filter((v) => v.participantId === me.id).map((v) => v.restaurantId) : [];
@@ -423,6 +457,7 @@ export async function getSnapshot(code: string, pid: string | null): Promise<Sna
         progress: room.state === "swiping" ? progress.get(p.id) ?? 0 : 0,
         inRound: room.roundParticipantIds.includes(p.id),
         sharedLocation: located.has(p.id),
+        diet: diets.get(p.id) ?? [],
       })),
     restaurants: inPlay ? room.restaurants : [],
     startsAt: room.startsAt,

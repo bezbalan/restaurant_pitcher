@@ -1,3 +1,5 @@
+import type { DietMatch } from "./diets.ts";
+
 export type RoomState = "lobby" | "vibe" | "swiping" | "results" | "decided";
 
 export type Cuisine =
@@ -12,6 +14,7 @@ export type Cuisine =
   | "Chinese"
   | "Vietnamese"
   // Meals & in-betweens
+  | "Vegan"
   | "Breakfast"
   | "Brunch"
   | "Dessert"
@@ -46,6 +49,8 @@ export interface Filters {
   casual: boolean;
   dateNight: boolean;
   outdoor: boolean;
+  /** Everyone's dietary needs, filled in by the server when the round starts */
+  dietNeeds?: string[];
 }
 
 export interface Restaurant {
@@ -93,6 +98,8 @@ export interface Restaurant {
   review?: { text: string; author: string; rating: number | null; when: string | null } | null;
   phone?: string | null;
   reservable?: boolean | null;
+  /** Which of the group's dietary needs this place seems to cater to */
+  dietMatches?: DietMatch[];
 }
 
 export interface Participant {
@@ -169,6 +176,8 @@ export interface PublicParticipant {
   inRound: boolean;
   /** Shared their location for meet-in-the-middle (coordinates are never sent to other phones) */
   sharedLocation: boolean;
+  /** Dietary needs this friend set (shared with the table so everyone can plan) */
+  diet: string[];
 }
 
 /** restaurantId → names of friends who've been there (shown after the round) */

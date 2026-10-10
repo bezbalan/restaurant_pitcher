@@ -114,6 +114,10 @@ BASE=http://localhost:3100 node tests/e2e-api.mjs   # 20 multiplayer scenarios w
 
 **Meet in the middle:** anyone can tap **📍 Share** in the lobby. The host then picks **Middle** on the vibe screen, and the search centers on the average of everyone's shared location. Coordinates are rounded to about 100 m, stay on the server and never reach other phones.
 
+**Dietary needs:** in the lobby, each friend can tap **🌱 Any dietary needs?** and choose from Vegan, Vegetarian, Gluten-free, Halal, Kosher, No pork, Dairy-free or Nut allergy. Needs Google can search for are added to the search, and matching places rank higher and get green badges: "listed" by Google, or "(per reviews)" when only reviews mention it. The results and final screens remind the table of everyone's needs. There's also a highlighted **🌱 Vegan** craving.
+
+**Round length:** 75 seconds.
+
 **"Open now"** means open for at least the next 90 minutes, using Google's `nextCloseTime`.
 
 **Group size:** no practical limit (a sanity cap of 100 stops runaway rooms).

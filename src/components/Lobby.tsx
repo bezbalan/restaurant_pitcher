@@ -2,10 +2,11 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { ClientError, getSavedName, haptic, shareLink } from "@/lib/client";
+import { DIETS, dietLabel } from "@/lib/diets";
 import type { Snapshot } from "@/lib/types";
 import type { useRoom } from "@/lib/useRoom";
 import { RoomHeader } from "./RoomClient";
-import { Avatar, Button, Screen, cx } from "./ui";
+import { Avatar, Button, Chip, Screen, cx } from "./ui";
 
 type Room = ReturnType<typeof useRoom>;
 
@@ -32,9 +33,10 @@ export function PeopleList({ snap, slots = 4 }: { snap: Snapshot; slots?: number
             className="flex items-center gap-3 rounded-2xl bg-paper px-3 py-2.5 shadow-[var(--shadow-soft)]"
           >
             <Avatar name={p.name} size={38} dim={!p.active} />
-            <span className="flex-1 text-[17px] text-ink">
+            <span className="min-w-0 flex-1 text-[17px] text-ink">
               {p.name}
               {p.id === snap.me?.id && <span className="ml-1.5 text-muted">(you)</span>}
+              {p.diet.length > 0 && <span className="block truncate text-[12px] text-olive">{p.diet.map(dietLabel).join(" · ")}</span>}
             </span>
             {p.sharedLocation && (
               <span className="text-[13px]" title="Shared location for meet-in-the-middle">
@@ -169,6 +171,9 @@ export function Lobby({ snap, room, isHost }: { snap: Snapshot; room: Room; isHo
         </div>
         <PeopleList snap={snap} />
         <div className="mt-4">
+          <DietPicker snap={snap} room={room} />
+        </div>
+        <div className="mt-3">
           <ShareLocation snap={snap} room={room} />
         </div>
       </div>
@@ -346,6 +351,46 @@ export function ShareLocation({ snap, room }: { snap: Snapshot; room: Room }) {
         </div>
       )}
       <p className="mt-1 text-[11px] text-muted">Only used to find a midpoint. Friends never see your exact location.</p>
+    </div>
+  );
+}
+
+/** Each friend can flag their own dietary needs; the search and the results take them into account. */
+export function DietPicker({ snap, room }: { snap: Snapshot; room: Room }) {
+  const serverMine = snap.participants.find((p) => p.id === snap.me?.id)?.diet ?? [];
+  const [mine, setMine] = useState<string[] | null>(null);
+  const current = mine ?? serverMine;
+  const [open, setOpen] = useState(serverMine.length > 0);
+
+  function toggle(key: string) {
+    haptic();
+    const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
+    setMine(next);
+    room
+      .act("diet", { needs: next })
+      .catch(() => {})
+      .finally(() => setMine(null));
+  }
+
+  return (
+    <div className="rounded-2xl border border-line bg-paper/70 px-4 py-3">
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between gap-3 text-left">
+        <span className="text-[14px] text-ink-2">
+          <span className="text-olive">🌱</span> Any dietary needs?
+          {current.length > 0 && <span className="text-olive"> · {current.map(dietLabel).join(", ")}</span>}
+        </span>
+        <span className="text-[13px] text-muted">{open ? "Done" : current.length ? "Edit" : "Add"}</span>
+      </button>
+      {open && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {DIETS.map((d) => (
+            <Chip key={d.key} small accent active={current.includes(d.key)} onClick={() => toggle(d.key)}>
+              {d.label}
+            </Chip>
+          ))}
+          <p className="w-full text-[11px] text-muted">Shared with your table. We&apos;ll look for places that fit, and remind everyone about the rest.</p>
+        </div>
+      )}
     </div>
   );
 }

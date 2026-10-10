@@ -1,7 +1,8 @@
 // Pure game logic — no I/O. Covered by tests/logic.test.ts.
 import type { Participant, Restaurant, Results, Room, Vote } from "./types.ts";
 
-export const ROUND_SECONDS = 60;
+/** 75s tested better than 60s for getting through ~12 cards without rushing. */
+export const ROUND_SECONDS = 75;
 export const COUNTDOWN_MS = 3500;
 /** Votes are still accepted this long after the timer, for in-flight requests */
 export const VOTE_GRACE_MS = 2500;
